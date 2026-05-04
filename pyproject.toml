@@ -1,0 +1,210 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "custdevai"
+version = "0.1.0"
+description = "Intelligent Customer Development automation system based on Telegram chatbot and Russian-language NLP"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+authors = [
+    { name = "Vladislav Kislyakov", email = "kislyakov@example.com" },
+]
+keywords = ["custdev", "nlp", "rubert", "bertopic", "telegram-bot", "fastapi"]
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: POSIX :: Linux",
+    "Natural Language :: Russian",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# ---------------------------------------------------------------------------
+# Core runtime dependencies (always installed)
+# ---------------------------------------------------------------------------
+dependencies = [
+    # Web framework + ASGI
+    "fastapi>=0.110,<0.116",
+    "uvicorn[standard]>=0.27,<0.32",
+    "pydantic>=2.6,<3.0",
+    "pydantic-settings>=2.2,<3.0",
+    "python-multipart>=0.0.9",
+
+    # Telegram bot framework
+    "aiogram>=3.4,<4.0",
+
+    # Database stack
+    "sqlalchemy[asyncio]>=2.0.27,<2.1",
+    "asyncpg>=0.29,<0.31",
+    "alembic>=1.13,<2.0",
+
+    # Background task queue
+    "celery[redis]>=5.3,<6.0",
+    "redis>=5.0,<6.0",
+
+    # Auth and security
+    "python-jose[cryptography]>=3.3,<4.0",
+    "passlib[bcrypt]>=1.7.4,<2.0",
+    "argon2-cffi>=23.1",  # backup hashing primitive
+
+    # PDF / XLSX report generation
+    "reportlab>=4.1,<5.0",
+    "openpyxl>=3.1,<4.0",
+    "matplotlib>=3.8,<4.0",
+    "pillow>=10.2,<12.0",
+
+    # Misc utilities
+    "httpx>=0.27,<0.29",
+    "structlog>=24.1,<25.0",
+    "python-dotenv>=1.0,<2.0",
+    "qrcode[pil]>=7.4,<9.0",
+]
+
+# ---------------------------------------------------------------------------
+# Optional dependency groups
+# ---------------------------------------------------------------------------
+[project.optional-dependencies]
+
+# Heavy ML stack — install only on machines that run inference (worker, training)
+ml = [
+    "torch>=2.2,<2.6",
+    "transformers>=4.38,<5.0",
+    "sentence-transformers>=2.5,<4.0",
+    "bertopic>=0.16,<0.18",
+    "umap-learn>=0.5.5,<0.6",
+    "hdbscan>=0.8.33,<0.9",
+    "scikit-learn>=1.4,<2.0",
+    "datasets>=2.18,<3.0",
+    "accelerate>=0.27,<2.0",
+]
+
+# Developer tooling — linters, type checkers, test runners
+dev = [
+    "pytest>=8.0,<9.0",
+    "pytest-asyncio>=0.23,<0.25",
+    "pytest-cov>=4.1,<6.0",
+    "pytest-mock>=3.12,<4.0",
+    "httpx>=0.27,<0.29",
+    "factory-boy>=3.3,<4.0",
+    "freezegun>=1.4,<2.0",
+
+    "ruff>=0.3,<0.10",
+    "mypy>=1.8,<2.0",
+    "types-python-jose",
+    "types-passlib",
+
+    "pre-commit>=3.6,<5.0",
+]
+
+# ---------------------------------------------------------------------------
+# Setuptools package discovery
+# ---------------------------------------------------------------------------
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["apps*"]
+exclude = ["tests*", "docs*"]
+
+# ---------------------------------------------------------------------------
+# Ruff (linter + formatter)
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+extend-exclude = ["alembic/versions", "docs"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "ASYNC",# flake8-async
+    "S",    # flake8-bandit (security)
+    "T20",  # flake8-print
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",  # handled by formatter
+    "S101",  # asserts are fine in tests
+    "B008",  # FastAPI Depends() in defaults is idiomatic
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S", "ASYNC"]
+"alembic/env.py" = ["E402"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ---------------------------------------------------------------------------
+# MyPy (static type checker)
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_untyped_defs = true
+plugins = ["pydantic.mypy"]
+exclude = ["alembic/versions", "tests/fixtures"]
+
+[[tool.mypy.overrides]]
+module = ["bertopic.*", "umap.*", "hdbscan.*", "celery.*"]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+# Pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests", "apps"]
+python_files = ["test_*.py", "*_test.py"]
+asyncio_mode = "auto"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--showlocals",
+]
+markers = [
+    "ml: tests that require the heavy ML stack (slow, skipped by default in CI smoke runs)",
+    "integration: tests that hit a real database or Redis instance",
+    "e2e: full end-to-end scenarios via Playwright",
+    "slow: tests that take more than ~5 seconds",
+]
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning:passlib",
+]
+
+# ---------------------------------------------------------------------------
+# Coverage
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+branch = true
+source = ["apps"]
+omit = [
+    "*/tests/*",
+    "*/__init__.py",
+    "alembic/*",
+]
+
+[tool.coverage.report]
+fail_under = 60  # NFR-MNT-01: ≥ 60% coverage target
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]

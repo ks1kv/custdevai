@@ -1,0 +1,141 @@
+# =============================================================================
+# CustDevAI — .gitignore
+# -----------------------------------------------------------------------------
+# CRITICAL: .env files and any file containing secrets MUST NEVER be committed
+# (NFR-SEC-06). Run `git status` before every commit and verify nothing
+# sensitive is staged.
+# =============================================================================
+
+# ---- Secrets and environment ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+.secrets/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+wheels/
+*.whl
+pip-log.txt
+pip-delete-this-directory.txt
+.installed.cfg
+MANIFEST
+
+# ---- Virtual environments ----
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# ---- Testing and coverage ----
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+.hypothesis/
+.tox/
+.nox/
+
+# ---- Type checking ----
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# ---- Linting ----
+.ruff_cache/
+
+# ---- Pre-commit ----
+.pre-commit-cache/
+
+# ---- IDE / editors ----
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ---- Jupyter ----
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ---- Frontend (React + Vite) ----
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+.next/
+.nuxt/
+coverage/
+
+# ---- Docker ----
+docker-compose.override.yml
+.docker/
+
+# ---- ML model weights and caches ----
+# These are downloaded on demand from HuggingFace; never commit them.
+models/
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.h5
+*.onnx
+.cache/
+.huggingface/
+.transformers_cache/
+
+# ---- Generated reports and uploads ----
+# Reports generated for actual campaigns must NEVER be committed
+# (contains potentially sensitive interview data).
+reports/
+uploads/
+exports/
+*.pdf
+*.xlsx
+*.csv
+!docs/**/*.pdf
+!docs/**/*.xlsx
+
+# ---- Database dumps and backups ----
+*.sql
+*.dump
+backups/
+postgres_data/
+
+# ---- Logs ----
+*.log
+logs/
+
+# ---- OS-specific ----
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+
+# ---- Build artifacts ----
+*.tar.gz
+*.zip
+!docs/**/*.zip

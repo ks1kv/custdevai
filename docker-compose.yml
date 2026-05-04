@@ -1,0 +1,194 @@
+# ============================================================================
+# CustDevAI — local development stack
+# ----------------------------------------------------------------------------
+# Spin up the full system locally with `docker-compose up --build`.
+# All services share a single .env file at the repo root (copy from
+# .env.example). On first launch run migrations: `make migrate` or
+# `docker-compose exec api alembic upgrade head`.
+# ============================================================================
+
+services:
+  # --------------------------------------------------------------------------
+  # PostgreSQL — primary data store (NFR-OPS-01, FR-DB-01..08)
+  # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:14-alpine
+    container_name: custdevai-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-custdev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?postgres password is required}
+      POSTGRES_DB: ${POSTGRES_DB:-custdevai}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/db/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-custdev} -d ${POSTGRES_DB:-custdevai}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - backend
+
+  # --------------------------------------------------------------------------
+  # Redis — Celery broker + aiogram FSM storage
+  # --------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: custdevai-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - backend
+
+  # --------------------------------------------------------------------------
+  # API service — FastAPI backend + REST API (FR-API-01..08)
+  # --------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    container_name: custdevai-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-custdev}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-custdevai}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./apps:/app/apps:ro
+      - ./alembic:/app/alembic:ro
+      - ./alembic.ini:/app/alembic.ini:ro
+    command: ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+      - frontend
+
+  # --------------------------------------------------------------------------
+  # Telegram bot — long-polling (dev) or webhook (prod) (FR-BOT-01..10)
+  # --------------------------------------------------------------------------
+  bot:
+    build:
+      context: .
+      dockerfile: docker/bot.Dockerfile
+    container_name: custdevai-bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-custdev}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-custdevai}
+      REDIS_URL: redis://redis:6379/0
+      API_BASE_URL: http://api:8000
+    volumes:
+      - ./apps:/app/apps:ro
+    command: ["python", "-m", "apps.bot.main"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    networks:
+      - backend
+
+  # --------------------------------------------------------------------------
+  # Celery worker — batch ML inference (FR-API-04, NFR-PRF-04)
+  # --------------------------------------------------------------------------
+  worker:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    container_name: custdevai-worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-custdev}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-custdevai}
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      ML_MODEL_CACHE_DIR: /models
+      TRANSFORMERS_OFFLINE: ${TRANSFORMERS_OFFLINE:-0}
+    volumes:
+      - ./apps:/app/apps:ro
+      - ml_models_cache:/models
+    command: ["celery", "-A", "apps.worker.celery_app", "worker", "--loglevel=info", "--concurrency=1"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # ML inference needs more RAM than the API/bot — bump if RuBERT inference OOMs
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+    networks:
+      - backend
+
+  # --------------------------------------------------------------------------
+  # Web admin SPA — React + TypeScript (FR-WEB-01..12)
+  # In production this is built into static assets and served via nginx;
+  # in dev we run vite directly with HMR.
+  # --------------------------------------------------------------------------
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: ../../docker/web.Dockerfile
+      target: dev
+    container_name: custdevai-web
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: http://localhost:${API_PORT:-8000}
+    ports:
+      - "${WEB_PORT:-5173}:5173"
+    volumes:
+      - ./apps/web:/app:rw
+      - /app/node_modules  # anonymous volume to keep container-installed deps
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+    depends_on:
+      - api
+    networks:
+      - frontend
+
+# ============================================================================
+# Volumes — persistent data across container restarts
+# ============================================================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  ml_models_cache:
+    driver: local
+    # Caches HuggingFace model weights (RuBERT, multilingual-e5) so they
+    # don't re-download on every container start — saves ~1.5 GB per restart.
+
+# ============================================================================
+# Networks — separate planes for backend services and frontend exposure
+# ============================================================================
+networks:
+  backend:
+    driver: bridge
+  frontend:
+    driver: bridge
