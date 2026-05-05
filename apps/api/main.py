@@ -16,7 +16,7 @@ from fastapi import APIRouter
 from apps.api.auth.router import router as auth_router
 from apps.api.config import Settings, get_settings
 from apps.api.errors import register_error_handlers
-from apps.api.routers import health
+from apps.api.routers import health, users
 
 API_V1_PREFIX = "/api/v1"
 
@@ -49,6 +49,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     api_v1 = APIRouter(prefix=API_V1_PREFIX)
     api_v1.include_router(auth_router)
+    api_v1.include_router(users.router)
     app.include_router(api_v1)
     return app
 
