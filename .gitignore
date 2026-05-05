@@ -93,7 +93,10 @@ docker-compose.override.yml
 
 # ---- ML model weights and caches ----
 # These are downloaded on demand from HuggingFace; never commit them.
+# Exception: apps/api/db/models/ contains SQLAlchemy ORM models (Python source).
 models/
+!apps/api/db/models/
+!apps/api/db/models/**
 *.bin
 *.safetensors
 *.pt
@@ -117,8 +120,10 @@ exports/
 !docs/**/*.xlsx
 
 # ---- Database dumps and backups ----
+# Exception: scripts/db/init/*.sql — checked-in initialization scripts.
 *.sql
 *.dump
+!scripts/db/init/*.sql
 backups/
 postgres_data/
 
