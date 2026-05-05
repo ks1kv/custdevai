@@ -5,19 +5,19 @@ from __future__ import annotations
 import pytest
 
 from apps.api.errors import ValidationFailed
-from apps.api.schemas.pagination import Page, PaginationParams
+from apps.api.schemas.pagination import Page, PaginationParams, pagination_dependency
 
 
-def test_default_limit_matches_settings(settings) -> None:
-    params = PaginationParams()
-    assert params.limit == settings.default_page_size
-    assert params.offset == 0
+def test_default_pagination_uses_settings(settings) -> None:
+    p = pagination_dependency(limit=0, offset=0)
+    assert p.limit == settings.default_page_size
+    assert p.offset == 0
 
 
 def test_validated_rejects_oversize(settings) -> None:
-    params = PaginationParams(limit=settings.max_page_size + 1)
+    p = PaginationParams(limit=settings.max_page_size + 1, offset=0)
     with pytest.raises(ValidationFailed):
-        params.validated()
+        p.validated()
 
 
 def test_page_serialization_round_trip() -> None:

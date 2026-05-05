@@ -6,12 +6,17 @@ import enum
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, Enum, ForeignKey, Index
+from sqlalchemy import JSON, BigInteger, Enum, ForeignKey, Index, String
 from sqlalchemy.dialects.postgresql import INET, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from apps.api.db.base import Base
+
+# Кросс-диалектные типы: на Postgres — INET / JSONB, на SQLite (только для тестов)
+# fallback на String / JSON, чтобы create_all не падал.
+_INET = INET().with_variant(String(45), "sqlite")
+_JSONB = JSONB().with_variant(JSON(), "sqlite")
 
 
 class AuditAction(str, enum.Enum):
@@ -62,5 +67,5 @@ class AuditLog(Base):
         ForeignKey("campaigns.id", ondelete="SET NULL"),
         nullable=True,
     )
-    ip_address: Mapped[str | None] = mapped_column(INET, nullable=True)
-    details: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(_INET, nullable=True)
+    details: Mapped[dict[str, Any] | None] = mapped_column(_JSONB, nullable=True)

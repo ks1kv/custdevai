@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Generic, TypeVar
 
-from pydantic import BaseModel, Field
+from fastapi import Query
+from pydantic import BaseModel
 
 from apps.api.config import get_settings
 from apps.api.errors import ValidationFailed
@@ -12,18 +14,37 @@ from apps.api.errors import ValidationFailed
 T = TypeVar("T")
 
 
-class PaginationParams(BaseModel):
-    limit: int = Field(default_factory=lambda: get_settings().default_page_size, ge=1)
-    offset: int = Field(default=0, ge=0)
+@dataclass
+class PaginationParams:
+    """Lightweight DTO для query-параметров limit/offset."""
+
+    limit: int
+    offset: int
 
     def validated(self) -> "PaginationParams":
         max_size = get_settings().max_page_size
         if self.limit > max_size:
             raise ValidationFailed(
                 f"Размер страницы превышает максимум {max_size}.",
-                errors=[{"loc": ["query", "limit"], "msg": f"limit ≤ {max_size}", "type": "value_error"}],
+                errors=[
+                    {
+                        "loc": ["query", "limit"],
+                        "msg": f"limit ≤ {max_size}",
+                        "type": "value_error",
+                    }
+                ],
             )
         return self
+
+
+def pagination_dependency(
+    limit: int = Query(default=0, ge=0),
+    offset: int = Query(default=0, ge=0),
+) -> PaginationParams:
+    """FastAPI Depends-провайдер пагинации с дефолтом из Settings."""
+    if limit == 0:
+        limit = get_settings().default_page_size
+    return PaginationParams(limit=limit, offset=offset)
 
 
 class Page(BaseModel, Generic[T]):

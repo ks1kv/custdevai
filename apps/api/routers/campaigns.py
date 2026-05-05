@@ -8,7 +8,7 @@ from apps.api.auth.rbac import Role
 from apps.api.db.models import CampaignStatus
 from apps.api.deps import CurrentUser, DBSession, SettingsDep, require_roles
 from apps.api.schemas.campaign import CampaignCreate, CampaignOut, CampaignUpdate
-from apps.api.schemas.pagination import Page, PaginationParams
+from apps.api.schemas.pagination import Page, PaginationParams, pagination_dependency
 from apps.api.services.campaigns import CampaignService
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
@@ -27,7 +27,7 @@ def _owner_filter(actor: CurrentUser) -> int | None:
 async def list_campaigns(
     session: DBSession,
     settings: SettingsDep,
-    pagination: PaginationParams = Depends(PaginationParams),
+    pagination: PaginationParams = Depends(pagination_dependency),
     status_filter: CampaignStatus | None = None,
     actor: CurrentUser = Depends(_reader),
 ) -> Page[CampaignOut]:

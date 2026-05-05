@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Response, status
 
 from apps.api.auth.rbac import Role
 from apps.api.deps import CurrentUser, DBSession, get_current_user, require_roles
-from apps.api.schemas.pagination import Page, PaginationParams
+from apps.api.schemas.pagination import Page, PaginationParams, pagination_dependency
 from apps.api.schemas.script import (
     QuestionIn,
     QuestionOut,
@@ -37,7 +37,7 @@ def _to_out(script: object) -> ScriptOut:
 @router.get("", response_model=Page[ScriptOut], summary="Список сценариев")
 async def list_scripts(
     session: DBSession,
-    pagination: PaginationParams = Depends(PaginationParams),
+    pagination: PaginationParams = Depends(pagination_dependency),
     actor: CurrentUser = Depends(_reader),
 ) -> Page[ScriptOut]:
     pagination.validated()
