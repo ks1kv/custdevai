@@ -19,6 +19,7 @@ from apps.api.auth.router import router as auth_router
 from apps.api.config import Settings, get_settings
 from apps.api.deps import CurrentUser, require_roles
 from apps.api.errors import register_error_handlers
+from apps.api.middleware import register_middleware
 from apps.api.routers import campaigns, health, scripts, users
 
 API_V1_PREFIX = "/api/v1"
@@ -78,6 +79,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = cfg
     register_error_handlers(app)
+    register_middleware(app, cfg)
     app.include_router(health.router)
 
     api_v1 = APIRouter(prefix=API_V1_PREFIX)
