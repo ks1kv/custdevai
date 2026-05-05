@@ -1,0 +1,43 @@
+"""FastAPI app factory для CustDevAI.
+
+Точка входа `app` собирается через `create_app()`, чтобы конфигурация и
+зависимости подменялись в тестах через `dependency_overrides`. Маршруты
+подключаются с префиксом `/api/v1` (FR-API-06).
+"""
+
+from __future__ import annotations
+
+import logging
+
+from fastapi import FastAPI
+
+from apps.api.config import Settings, get_settings
+
+logger = logging.getLogger(__name__)
+
+
+def create_app(settings: Settings | None = None) -> FastAPI:
+    """Собрать ASGI-приложение FastAPI.
+
+    Args:
+        settings: Опциональная подмена конфигурации (для тестов).
+
+    Returns:
+        Сконфигурированный FastAPI-инстанс.
+    """
+    cfg = settings or get_settings()
+    logging.basicConfig(level=cfg.log_level)
+
+    app = FastAPI(
+        title="CustDevAI API",
+        version="0.1.0",
+        description="REST API для системы автоматизации Customer Development.",
+        openapi_url="/api/openapi.json",
+        docs_url="/api/docs",
+        redoc_url="/api/redoc",
+    )
+    app.state.settings = cfg
+    return app
+
+
+app = create_app()
