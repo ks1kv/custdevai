@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from apps.api.errors import (
+    ERROR_NS,
     APIError,
     AuthenticationFailed,
     Conflict,
-    ERROR_NS,
     NotFound,
     PermissionDenied,
     RateLimited,
@@ -20,7 +20,9 @@ def test_problem_content_type() -> None:
 
 
 def test_validation_failed_problem_payload() -> None:
-    err = ValidationFailed("Поле email отсутствует.", errors=[{"loc": ["body"], "msg": "x", "type": "y"}])
+    err = ValidationFailed(
+        "Поле email отсутствует.", errors=[{"loc": ["body"], "msg": "x", "type": "y"}]
+    )
     p = err.to_problem(instance="https://example/api")
     dump = p.model_dump(exclude_none=True)
     assert dump["status"] == 400

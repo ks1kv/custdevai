@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 from freezegun import freeze_time
@@ -28,19 +28,14 @@ def test_issue_token_pair_returns_valid_tokens(settings) -> None:
 
 def test_access_token_expires_after_15_minutes(settings) -> None:
     with freeze_time("2026-05-05 10:00:00"):
-        access, _, _, _ = issue_token_pair(
-            user_id=1, roles=[], settings=settings
-        )
-    with freeze_time("2026-05-05 10:16:00"):
-        with pytest.raises(AuthenticationFailed):
-            decode_token(access, settings=settings)
+        access, _, _, _ = issue_token_pair(user_id=1, roles=[], settings=settings)
+    with freeze_time("2026-05-05 10:16:00"), pytest.raises(AuthenticationFailed):
+        decode_token(access, settings=settings)
 
 
 def test_refresh_token_lifetime_seven_days(settings) -> None:
     with freeze_time("2026-05-05 10:00:00"):
-        _, refresh, _, _ = issue_token_pair(
-            user_id=1, roles=[], settings=settings
-        )
+        _, refresh, _, _ = issue_token_pair(user_id=1, roles=[], settings=settings)
         payload = decode_token(refresh, settings=settings)
     assert (payload.exp - payload.iat) == timedelta(days=7)
 

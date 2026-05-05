@@ -16,8 +16,10 @@ logger = logging.getLogger(__name__)
 async def main() -> None:
     logging.basicConfig(level=logging.INFO)
     logger.info("[bot] not yet implemented — будет добавлено в Phase 2 (FR-BOT-*)")
-    while True:
-        await asyncio.sleep(3600)
+    # Phase 1: контейнер должен оставаться живым; настоящий aiogram.Bot.start_polling
+    # подключается в Phase 2 — он сам ведёт event loop.
+    stop_event = asyncio.Event()
+    await stop_event.wait()
 
 
 if __name__ == "__main__":

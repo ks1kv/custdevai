@@ -23,7 +23,7 @@ class Script(Base, TimestampMixin):
         index=True,
     )
 
-    questions: Mapped[list["Question"]] = relationship(
+    questions: Mapped[list[Question]] = relationship(
         back_populates="script",
         cascade="all, delete-orphan",
         order_by="Question.order_index",

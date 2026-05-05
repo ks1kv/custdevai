@@ -28,9 +28,7 @@ async def test_researcher_cannot_create_user(client, db_session) -> None:
     db_session.add(UserRole(user_id=u.id, role_id=2))  # Researcher
     await db_session.commit()
 
-    r = await client.post(
-        "/api/v1/auth/login", json={"email": "r@x.com", "password": "Test12345!"}
-    )
+    r = await client.post("/api/v1/auth/login", json={"email": "r@x.com", "password": "Test12345!"})
     token = r.json()["access_token"]
 
     r = await client.post(

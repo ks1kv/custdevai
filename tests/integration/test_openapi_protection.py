@@ -26,11 +26,7 @@ async def test_swagger_ui_unauthenticated_returns_401(client) -> None:
 
 @pytest.mark.asyncio
 async def test_openapi_authenticated_returns_schema(client, settings) -> None:
-    access, _, _, _ = issue_token_pair(
-        user_id=1, roles=["Admin"], settings=get_settings()
-    )
-    r = await client.get(
-        "/api/openapi.json", headers={"Authorization": f"Bearer {access}"}
-    )
+    access, _, _, _ = issue_token_pair(user_id=1, roles=["Admin"], settings=get_settings())
+    r = await client.get("/api/openapi.json", headers={"Authorization": f"Bearer {access}"})
     assert r.status_code == 200
     assert "openapi" in r.json()

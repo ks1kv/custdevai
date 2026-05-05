@@ -24,9 +24,7 @@ class Campaign(Base, TimestampMixin):
     """Кампания сбора данных, привязанная к одному сценарию."""
 
     __tablename__ = "campaigns"
-    __table_args__ = (
-        Index("ix_campaigns_status_created_at", "status", "created_at"),
-    )
+    __table_args__ = (Index("ix_campaigns_status_created_at", "status", "created_at"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)

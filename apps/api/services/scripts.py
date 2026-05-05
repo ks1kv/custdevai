@@ -48,18 +48,14 @@ class ScriptService:
     async def list_(
         self, *, limit: int, offset: int, owner_id: int | None
     ) -> tuple[list[Script], int]:
-        return await self._repo.list_paginated(
-            limit=limit, offset=offset, owner_id=owner_id
-        )
+        return await self._repo.list_paginated(limit=limit, offset=offset, owner_id=owner_id)
 
     async def update(
         self, script_id: int, payload: ScriptUpdate, *, owner_id: int | None
     ) -> Script:
         script = await self.get(script_id, owner_id=owner_id)
         if await self._repo.has_running_campaign(script_id):
-            raise Conflict(
-                "Сценарий нельзя править, пока с ним связана активная кампания."
-            )
+            raise Conflict("Сценарий нельзя править, пока с ним связана активная кампания.")
         if payload.title is not None:
             script.title = payload.title
         if payload.description is not None:

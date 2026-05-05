@@ -29,6 +29,4 @@ def require(roles: Iterable[Role], user_roles: Iterable[str]) -> None:
     """
     allowed = {r.value for r in roles}
     if not (allowed & set(user_roles)):
-        raise PermissionDenied(
-            "Недостаточно прав для выполнения операции."
-        )
+        raise PermissionDenied("Недостаточно прав для выполнения операции.")

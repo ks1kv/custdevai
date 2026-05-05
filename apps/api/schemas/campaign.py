@@ -36,7 +36,7 @@ class CampaignOut(BaseModel):
     has_pseudonym_salt: bool = False
 
     @classmethod
-    def from_orm_with_flag(cls, campaign: object) -> "CampaignOut":
+    def from_orm_with_flag(cls, campaign: object) -> CampaignOut:
         out = cls.model_validate(campaign)
         out.has_pseudonym_salt = bool(getattr(campaign, "pseudonym_salt", None))
         return out

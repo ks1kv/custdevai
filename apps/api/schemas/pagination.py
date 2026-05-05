@@ -21,7 +21,7 @@ class PaginationParams:
     limit: int
     offset: int
 
-    def validated(self) -> "PaginationParams":
+    def validated(self) -> PaginationParams:
         max_size = get_settings().max_page_size
         if self.limit > max_size:
             raise ValidationFailed(

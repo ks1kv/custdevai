@@ -46,9 +46,7 @@ class AuthService:
 
     async def login(self, *, email: str, password: str, ip: str) -> TokenPair:
         if await self._bf.is_locked(ip):
-            raise RateLimited(
-                "Слишком много неудачных попыток входа. Попробуйте через 15 минут."
-            )
+            raise RateLimited("Слишком много неудачных попыток входа. Попробуйте через 15 минут.")
         user = await self._users.get_by_email(email)
         if user is None or not user.is_active:
             await self._record_failed(ip=ip, target_user_id=None)
@@ -122,9 +120,7 @@ class AuthService:
                 rp = decode_token(refresh_token, settings=self._settings)
                 if rp.type is TokenType.REFRESH:
                     await self._refresh_store.consume(rp.jti)
-                    await self._revocation.revoke(
-                        rp.jti, ttl_seconds=self._remaining_seconds(rp)
-                    )
+                    await self._revocation.revoke(rp.jti, ttl_seconds=self._remaining_seconds(rp))
             except AuthenticationFailed:
                 # logout-идемпотентен: невалидный refresh не должен 401-ить.
                 pass

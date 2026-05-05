@@ -15,7 +15,6 @@ from apps.api.db.base import Base
 from apps.api.db.session import get_db
 from apps.api.deps import get_redis_dep
 from apps.api.main import create_app
-from tests.conftest import FakeAsyncRedis
 
 # SQLite в памяти достаточно для smoke-проверок CRUD на уровне ORM
 # (без проверки PostgreSQL-специфичных типов вроде ENUM/INET/JSONB —

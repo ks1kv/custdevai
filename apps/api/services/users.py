@@ -97,7 +97,10 @@ class UserService:
             user_id=actor_id,
             target_user_id=user.id,
             ip_address=ip,
-            details={"full_name_changed": full_name is not None, "is_active_changed": is_active is not None},
+            details={
+                "full_name_changed": full_name is not None,
+                "is_active_changed": is_active is not None,
+            },
         )
         await self._session.commit()
         return user
@@ -108,9 +111,9 @@ class UserService:
             raise NotFound("Пользователь не найден.")
         user.is_active = False
         # FR-DB-06: сценарии деактивированного пользователя переписываются на актора-админа.
-        from apps.api.db.models import Script  # локальный импорт, чтобы избежать цикла на старте
-
         from sqlalchemy import update
+
+        from apps.api.db.models import Script  # локальный импорт, чтобы избежать цикла на старте
 
         await self._session.execute(
             update(Script)
@@ -126,9 +129,7 @@ class UserService:
         await self._session.commit()
         return user
 
-    async def reset_password(
-        self, *, user_id: int, actor_id: int, ip: str
-    ) -> tuple[User, str]:
+    async def reset_password(self, *, user_id: int, actor_id: int, ip: str) -> tuple[User, str]:
         user = await self._users.get_by_id(user_id)
         if user is None:
             raise NotFound("Пользователь не найден.")

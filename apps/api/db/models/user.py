@@ -28,7 +28,7 @@ class User(Base, TimestampMixin):
     failed_login_count: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
     locked_until: Mapped[datetime | None] = mapped_column(nullable=True)
 
-    roles: Mapped[list["Role"]] = relationship(
+    roles: Mapped[list[Role]] = relationship(
         secondary="user_roles",
         lazy="selectin",
         viewonly=False,

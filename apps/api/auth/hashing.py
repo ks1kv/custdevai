@@ -25,7 +25,7 @@ def derive_campaign_salt(*, master_salt_hex: str, campaign_id: int) -> bytes:
         raise ValueError(
             "PSEUDONYM_MASTER_SALT слишком короткая: требуется минимум 32 hex-символа."
         )
-    info = f"custdevai:campaign:{campaign_id}".encode("utf-8")
+    info = f"custdevai:campaign:{campaign_id}".encode()
     # HKDF-Expand для одного 32-байтного блока: T(1) = HMAC(prk, info || 0x01).
     return hmac.new(master, info + b"\x01", hashlib.sha256).digest()
 

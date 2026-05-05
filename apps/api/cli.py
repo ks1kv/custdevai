@@ -36,8 +36,7 @@ async def _create_admin(email: str, password: str, full_name: str | None) -> Non
         admin_role = admin_role_q.scalar_one_or_none()
         if admin_role is None:
             print(
-                "Роль Admin не найдена. Сначала примените миграции: "
-                "alembic upgrade head.",
+                "Роль Admin не найдена. Сначала примените миграции: alembic upgrade head.",
                 file=sys.stderr,
             )
             sys.exit(3)

@@ -107,9 +107,7 @@ async def _api_error_handler(request: Request, exc: APIError) -> JSONResponse:
     return _problem_response(exc.to_problem(instance=str(request.url)))
 
 
-async def _http_exception_handler(
-    request: Request, exc: StarletteHTTPException
-) -> JSONResponse:
+async def _http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     title_map = {
         400: "Некорректный запрос",
         401: "Требуется аутентификация",
@@ -132,9 +130,7 @@ async def _http_exception_handler(
     return _problem_response(problem)
 
 
-async def _validation_handler(
-    request: Request, exc: RequestValidationError
-) -> JSONResponse:
+async def _validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     errors = [
         {"loc": list(err.get("loc", [])), "msg": err.get("msg"), "type": err.get("type")}
         for err in exc.errors()

@@ -75,7 +75,5 @@ async def test_invalid_status_transition_returns_409(client, seeded_admin) -> No
     assert r.status_code == 200
 
     # completed → running: запрещено (Conflict)
-    r = await client.patch(
-        f"/api/v1/campaigns/{cid}", json={"status": "running"}, headers=headers
-    )
+    r = await client.patch(f"/api/v1/campaigns/{cid}", json={"status": "running"}, headers=headers)
     assert r.status_code == 409
