@@ -13,6 +13,7 @@ from fastapi import FastAPI
 
 from apps.api.config import Settings, get_settings
 from apps.api.errors import register_error_handlers
+from apps.api.routers import health
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = cfg
     register_error_handlers(app)
+    app.include_router(health.router)
     return app
 
 
