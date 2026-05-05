@@ -12,6 +12,7 @@ import logging
 from fastapi import FastAPI
 
 from apps.api.config import Settings, get_settings
+from apps.api.errors import register_error_handlers
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url="/api/redoc",
     )
     app.state.settings = cfg
+    register_error_handlers(app)
     return app
 
 
