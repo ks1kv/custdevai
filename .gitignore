@@ -93,10 +93,9 @@ docker-compose.override.yml
 
 # ---- ML model weights and caches ----
 # These are downloaded on demand from HuggingFace; never commit them.
-# Exception: apps/api/db/models/ contains SQLAlchemy ORM models (Python source).
-models/
-!apps/api/db/models/
-!apps/api/db/models/**
+# Pattern is anchored at repo root, so apps/api/db/models/ (Python ORM
+# package, not weights) is unaffected.
+/models/
 *.bin
 *.safetensors
 *.pt
