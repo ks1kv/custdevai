@@ -27,6 +27,10 @@ class User(Base, TimestampMixin):
     must_change_password: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     failed_login_count: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
     locked_until: Mapped[datetime | None] = mapped_column(nullable=True)
+    # Telegram chat_id для push-уведомлений исследователя (FR-BOT-09).
+    # Регистрируется через отдельный flow (Phase 4 web-панель). Если NULL —
+    # уведомления не доставляются.
+    researcher_telegram_chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     roles: Mapped[list[Role]] = relationship(
         secondary="user_roles",
