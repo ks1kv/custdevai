@@ -93,7 +93,9 @@ docker-compose.override.yml
 
 # ---- ML model weights and caches ----
 # These are downloaded on demand from HuggingFace; never commit them.
-models/
+# Pattern is anchored at repo root, so apps/api/db/models/ (Python ORM
+# package, not weights) is unaffected.
+/models/
 *.bin
 *.safetensors
 *.pt
@@ -117,8 +119,10 @@ exports/
 !docs/**/*.xlsx
 
 # ---- Database dumps and backups ----
+# Exception: scripts/db/init/*.sql — checked-in initialization scripts.
 *.sql
 *.dump
+!scripts/db/init/*.sql
 backups/
 postgres_data/
 

@@ -135,11 +135,24 @@ ignore = [
     "E501",  # handled by formatter
     "S101",  # asserts are fine in tests
     "B008",  # FastAPI Depends() in defaults is idiomatic
+    "N818",  # exception names use Russian-domain semantics, not "Error" suffix
+    "S104",  # binding to 0.0.0.0 is intentional inside docker containers
+    "S105",  # too many false positives on enum string values like "PASSWORD_RESET"
+    "S106",  # ditto for hardcoded test passwords in fixtures
+    # Russian-language project: Cyrillic letters in docstrings/comments are
+    # not "ambiguous" — they are the correct alphabet. Disable RUF001-003.
+    "RUF001",
+    "RUF002",
+    "RUF003",
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S", "ASYNC"]
 "alembic/env.py" = ["E402"]
+"alembic/versions/*.py" = ["E501", "I001"]
+"apps/api/cli.py" = ["T201"]  # print() is intentional CLI output
+"apps/bot/main.py" = ["T201"]
+"apps/worker/main.py" = ["T201"]
 
 [tool.ruff.format]
 quote-style = "double"

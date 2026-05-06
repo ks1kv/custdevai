@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  lint-typecheck-test:
+    name: Lint, typecheck, tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+
+    env:
+      ENVIRONMENT: development
+      JWT_SECRET: ${{ '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef' }}
+      POSTGRES_PASSWORD: cipassword
+      PSEUDONYM_MASTER_SALT: ${{ '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef' }}
+      BCRYPT_COST_FACTOR: "12"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify no committed .env files (NFR-SEC-06)
+        run: |
+          # Любой .env.* кроме .env.example в трекаемых файлах — критическая утечка.
+          if git ls-files | grep -E '^\.env(\..*)?$' | grep -v '\.env\.example$'; then
+            echo "::error::Committed .env file detected — secrets must never be committed (NFR-SEC-06)"
+            exit 1
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install aiosqlite
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+      - name: MyPy
+        # На Phase 1 mypy запускается non-fatal — структура кода ещё стабилизируется.
+        # Включается строгий режим в Phase 2 после первой стабилизации API.
+        continue-on-error: true
+        run: mypy apps/api
+
+      - name: Pytest with coverage
+        run: |
+          pytest --cov=apps/api --cov-report=term --cov-report=xml \
+                 --cov-fail-under=60 -m "not ml"
+
+      - name: Upload coverage XML
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          retention-days: 7

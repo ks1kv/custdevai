@@ -75,6 +75,11 @@ services:
       - ./alembic:/app/alembic:ro
       - ./alembic.ini:/app/alembic.ini:ro
     command: ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     depends_on:
       postgres:
         condition: service_healthy
@@ -148,28 +153,27 @@ services:
 
   # --------------------------------------------------------------------------
   # Web admin SPA — React + TypeScript (FR-WEB-01..12)
-  # In production this is built into static assets and served via nginx;
-  # in dev we run vite directly with HMR.
+  # Uncomment in Phase 4 when React SPA is ready.
   # --------------------------------------------------------------------------
-  web:
-    build:
-      context: ./apps/web
-      dockerfile: ../../docker/web.Dockerfile
-      target: dev
-    container_name: custdevai-web
-    restart: unless-stopped
-    environment:
-      VITE_API_BASE_URL: http://localhost:${API_PORT:-8000}
-    ports:
-      - "${WEB_PORT:-5173}:5173"
-    volumes:
-      - ./apps/web:/app:rw
-      - /app/node_modules  # anonymous volume to keep container-installed deps
-    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
-    depends_on:
-      - api
-    networks:
-      - frontend
+  # web:
+  #   build:
+  #     context: ./apps/web
+  #     dockerfile: ../../docker/web.Dockerfile
+  #     target: dev
+  #   container_name: custdevai-web
+  #   restart: unless-stopped
+  #   environment:
+  #     VITE_API_BASE_URL: http://localhost:${API_PORT:-8000}
+  #   ports:
+  #     - "${WEB_PORT:-5173}:5173"
+  #   volumes:
+  #     - ./apps/web:/app:rw
+  #     - /app/node_modules
+  #   command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+  #   depends_on:
+  #     - api
+  #   networks:
+  #     - frontend
 
 # ============================================================================
 # Volumes — persistent data across container restarts
