@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.auth.hashing import derive_campaign_salt, random_campaign_salt
 from apps.api.config import Settings
+from apps.api.db.models import CampaignAnalysisStatus
 from apps.api.db.models import Campaign, CampaignStatus, Script
 from apps.api.db.repositories.campaigns import CampaignRepository
 from apps.api.errors import Conflict, NotFound, ValidationFailed
@@ -46,6 +47,7 @@ class CampaignService:
             created_by_user_id=owner_id,
             status=CampaignStatus.DRAFT,
             pseudonym_salt=random_campaign_salt(),
+            target_topic_count=payload.target_topic_count,
         )
         self._session.add(campaign)
         await self._session.commit()
@@ -80,6 +82,8 @@ class CampaignService:
             campaign.title = payload.title
         if payload.description is not None:
             campaign.description = payload.description
+        if payload.target_topic_count is not None:
+            campaign.target_topic_count = payload.target_topic_count
         if payload.status is not None and payload.status != campaign.status:
             allowed = _ALLOWED_TRANSITIONS[campaign.status]
             if payload.status not in allowed:
@@ -107,3 +111,40 @@ class CampaignService:
             master_salt_hex=self._settings.pseudonym_master_salt,
             campaign_id=campaign_id,
         )
+
+    # ----- Phase 3: ML pipeline orchestration (FR-API-04, FR-RPT-07) ---------
+
+    async def enqueue_analysis(
+        self, campaign_id: int, *, owner_id: int | None
+    ) -> str:
+        """Поставить пайплайн анализа в очередь. Возвращает task_id.
+
+        Если кампания уже в `running` — Conflict (409). Для `completed` /
+        `failed` запуск разрешён (re-run, FR-RPT-07): таска DELETE+INSERT-нет
+        старые результаты.
+        """
+        campaign = await self.get(campaign_id, owner_id=owner_id)
+        if campaign.analysis_status == CampaignAnalysisStatus.RUNNING:
+            raise Conflict(
+                "Анализ уже выполняется для этой кампании. "
+                "Дождитесь завершения или статуса failed."
+            )
+        # Lazy-импорт Celery-таски, чтобы apps.api не зависел от worker-stack
+        # на старте.
+        from apps.worker.tasks.ml_pipeline import analyze_campaign
+
+        async_result = analyze_campaign.delay(campaign_id)
+        return str(async_result.id)
+
+    async def get_analysis_status(
+        self, campaign_id: int, *, owner_id: int | None
+    ) -> dict[str, object]:
+        campaign = await self.get(campaign_id, owner_id=owner_id)
+        return {
+            "campaign_id": campaign.id,
+            "analysis_status": campaign.analysis_status.value,
+            "analysis_started_at": campaign.analysis_started_at,
+            "analysis_completed_at": campaign.analysis_completed_at,
+            "analysis_error": campaign.analysis_error,
+            "target_topic_count": campaign.target_topic_count,
+        }

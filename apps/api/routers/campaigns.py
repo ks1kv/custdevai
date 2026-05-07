@@ -7,7 +7,13 @@ from fastapi import APIRouter, Depends, Response, status
 from apps.api.auth.rbac import Role
 from apps.api.db.models import CampaignStatus
 from apps.api.deps import CurrentUser, DBSession, SettingsDep, require_roles
-from apps.api.schemas.campaign import CampaignCreate, CampaignOut, CampaignUpdate
+from apps.api.schemas.campaign import (
+    CampaignAnalysisQueued,
+    CampaignAnalysisStatusOut,
+    CampaignCreate,
+    CampaignOut,
+    CampaignUpdate,
+)
 from apps.api.schemas.pagination import Page, PaginationParams, pagination_dependency
 from apps.api.services.campaigns import CampaignService
 
@@ -99,3 +105,40 @@ async def delete_campaign(
     service = CampaignService(session, settings)
     await service.delete(campaign_id, owner_id=_owner_filter(actor))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/{campaign_id}/analyze",
+    response_model=CampaignAnalysisQueued,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Запустить ML-анализ кампании (FR-API-04, FR-RPT-07)",
+)
+async def analyze_campaign_endpoint(
+    campaign_id: int,
+    session: DBSession,
+    settings: SettingsDep,
+    actor: CurrentUser = Depends(_writer),
+) -> CampaignAnalysisQueued:
+    service = CampaignService(session, settings)
+    task_id = await service.enqueue_analysis(
+        campaign_id, owner_id=_owner_filter(actor)
+    )
+    return CampaignAnalysisQueued(campaign_id=campaign_id, task_id=task_id)
+
+
+@router.get(
+    "/{campaign_id}/analysis-status",
+    response_model=CampaignAnalysisStatusOut,
+    summary="Получить статус ML-пайплайна кампании",
+)
+async def get_analysis_status_endpoint(
+    campaign_id: int,
+    session: DBSession,
+    settings: SettingsDep,
+    actor: CurrentUser = Depends(_reader),
+) -> CampaignAnalysisStatusOut:
+    service = CampaignService(session, settings)
+    data = await service.get_analysis_status(
+        campaign_id, owner_id=_owner_filter(actor)
+    )
+    return CampaignAnalysisStatusOut.model_validate(data)
