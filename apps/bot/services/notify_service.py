@@ -77,7 +77,7 @@ async def maybe_notify_researcher_all_completed(db: AsyncSession, *, campaign_id
 
         analyze_campaign.delay(campaign_id)
         logger.info("ml_pipeline_enqueued", extra={"campaign_id": campaign_id})
-    except Exception:  # noqa: BLE001
+    except Exception:
         # Если Celery недоступен (например, в тестах без брокера и без
         # always_eager), мягко логируем без фатала — аналитик может
         # запустить вручную через POST /api/v1/campaigns/{id}/analyze.
@@ -119,8 +119,6 @@ async def notify_researcher_analysis_ready(
             ),
         )
     except TelegramAPIError as exc:
-        logger.warning(
-            "analysis_notify delivery failed for campaign %s: %s", campaign_id, exc
-        )
+        logger.warning("analysis_notify delivery failed for campaign %s: %s", campaign_id, exc)
     finally:
         await notify_bot.session.close()

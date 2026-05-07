@@ -8,8 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.auth.hashing import derive_campaign_salt, random_campaign_salt
 from apps.api.config import Settings
-from apps.api.db.models import CampaignAnalysisStatus
-from apps.api.db.models import Campaign, CampaignStatus, Script
+from apps.api.db.models import Campaign, CampaignAnalysisStatus, CampaignStatus, Script
 from apps.api.db.repositories.campaigns import CampaignRepository
 from apps.api.errors import Conflict, NotFound, ValidationFailed
 from apps.api.schemas.campaign import CampaignCreate, CampaignUpdate
@@ -114,9 +113,7 @@ class CampaignService:
 
     # ----- Phase 3: ML pipeline orchestration (FR-API-04, FR-RPT-07) ---------
 
-    async def enqueue_analysis(
-        self, campaign_id: int, *, owner_id: int | None
-    ) -> str:
+    async def enqueue_analysis(self, campaign_id: int, *, owner_id: int | None) -> str:
         """Поставить пайплайн анализа в очередь. Возвращает task_id.
 
         Если кампания уже в `running` — Conflict (409). Для `completed` /
@@ -126,8 +123,7 @@ class CampaignService:
         campaign = await self.get(campaign_id, owner_id=owner_id)
         if campaign.analysis_status == CampaignAnalysisStatus.RUNNING:
             raise Conflict(
-                "Анализ уже выполняется для этой кампании. "
-                "Дождитесь завершения или статуса failed."
+                "Анализ уже выполняется для этой кампании. Дождитесь завершения или статуса failed."
             )
         # Lazy-импорт Celery-таски, чтобы apps.api не зависел от worker-stack
         # на старте.

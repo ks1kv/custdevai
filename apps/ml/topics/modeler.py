@@ -114,9 +114,7 @@ class BERTopicModeler(TopicModeler):
             calculate_probabilities=False,
             verbose=False,
         )
-        topic_assignments_raw, _ = topic_model.fit_transform(
-            list(texts), embeddings=embeddings
-        )
+        topic_assignments_raw, _ = topic_model.fit_transform(list(texts), embeddings=embeddings)
         topic_assignments: list[int] = [int(t) for t in topic_assignments_raw]
 
         # Сжатие до целевого числа тем (FR-TOP-04).
@@ -128,9 +126,7 @@ class BERTopicModeler(TopicModeler):
             logger.warning("reduce_topics failed, keeping original topics")
 
         # Top-3 представителя на каждую тему (FR-TOP-03).
-        representative_idx = select_representative_indices(
-            embeddings, topic_assignments, top_k=3
-        )
+        representative_idx = select_representative_indices(embeddings, topic_assignments, top_k=3)
 
         # Сборка TopicResult-ов.
         topic_info = topic_model.get_topic_info()

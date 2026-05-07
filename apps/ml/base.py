@@ -23,9 +23,7 @@ class SentimentAnalyzer(abc.ABC):
         для амортизации latency первого инференса (NFR-PRF-04)."""
 
     @abc.abstractmethod
-    def analyze_batch(
-        self, texts: Sequence[str], *, threshold: float
-    ) -> list[SentimentInference]:
+    def analyze_batch(self, texts: Sequence[str], *, threshold: float) -> list[SentimentInference]:
         """Классифицировать батч ответов в три класса + low_confidence.
 
         Args:

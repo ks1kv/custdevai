@@ -41,9 +41,7 @@ async def fetch_campaign_answer_corpus(
     )
     answers = list((await db.execute(answers_stmt)).scalars().all())
 
-    sessions_stmt = select(InterviewSession).where(
-        InterviewSession.campaign_id == campaign_id
-    )
+    sessions_stmt = select(InterviewSession).where(InterviewSession.campaign_id == campaign_id)
     sessions = list((await db.execute(sessions_stmt)).scalars().all())
     return answers, sessions
 
@@ -71,9 +69,7 @@ class SentimentResultRepository:
         answer_ids = [a.id for a in answers]
         if answer_ids:
             await self._session.execute(
-                delete(SentimentResult).where(
-                    SentimentResult.answer_id.in_(answer_ids)
-                )
+                delete(SentimentResult).where(SentimentResult.answer_id.in_(answer_ids))
             )
 
         now = _utcnow()
@@ -111,9 +107,7 @@ class TopicResultRepository:
         вставить новые. Возвращает словарь model_topic_id → db_topic_id для
         последующей привязки session_topics.
         """
-        await self._session.execute(
-            delete(Topic).where(Topic.campaign_id == campaign_id)
-        )
+        await self._session.execute(delete(Topic).where(Topic.campaign_id == campaign_id))
         await self._session.flush()
 
         # INSERT topics

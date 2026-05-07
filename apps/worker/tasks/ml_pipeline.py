@@ -61,7 +61,7 @@ def set_analyzers(
     modeler_factory: Any | None,
 ) -> None:
     """Подменить фабрики ML-модулей (NFR-MNT-03). Используется в тестах."""
-    global _analyzer_factory, _modeler_factory  # noqa: PLW0603
+    global _analyzer_factory, _modeler_factory
     _analyzer_factory = analyzer_factory
     _modeler_factory = modeler_factory
 
@@ -96,9 +96,7 @@ def analyze_campaign(self: Any, campaign_id: int) -> dict[str, Any]:
     return asyncio.run(_analyze_campaign_async(campaign_id, self.request.retries))
 
 
-async def _analyze_campaign_async(
-    campaign_id: int, retry_attempt: int
-) -> dict[str, Any]:
+async def _analyze_campaign_async(campaign_id: int, retry_attempt: int) -> dict[str, Any]:
     settings = get_settings()
     engine = create_async_engine(settings.effective_database_url, future=True)
     sessionmaker = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
@@ -193,7 +191,7 @@ async def _analyze_campaign_async(
                     topics_count=len([t for t in topic_result.topics if not t.is_noise]),
                     sentiment_inserted=sentiment_inserted,
                 )
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("notify_researcher_analysis_ready failed (non-fatal)")
 
         # Подсчёт активных сессий — для structured-лога.
@@ -223,7 +221,7 @@ async def _analyze_campaign_async(
             try:
                 async with sessionmaker() as db:
                     await mark_failed(db, campaign_id, error=str(exc))
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.exception("mark_failed itself failed for campaign_id=%s", campaign_id)
         raise
     finally:

@@ -120,9 +120,7 @@ async def analyze_campaign_endpoint(
     actor: CurrentUser = Depends(_writer),
 ) -> CampaignAnalysisQueued:
     service = CampaignService(session, settings)
-    task_id = await service.enqueue_analysis(
-        campaign_id, owner_id=_owner_filter(actor)
-    )
+    task_id = await service.enqueue_analysis(campaign_id, owner_id=_owner_filter(actor))
     return CampaignAnalysisQueued(campaign_id=campaign_id, task_id=task_id)
 
 
@@ -138,7 +136,5 @@ async def get_analysis_status_endpoint(
     actor: CurrentUser = Depends(_reader),
 ) -> CampaignAnalysisStatusOut:
     service = CampaignService(session, settings)
-    data = await service.get_analysis_status(
-        campaign_id, owner_id=_owner_filter(actor)
-    )
+    data = await service.get_analysis_status(campaign_id, owner_id=_owner_filter(actor))
     return CampaignAnalysisStatusOut.model_validate(data)

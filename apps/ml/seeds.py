@@ -48,7 +48,7 @@ def set_global_seeds(seed: int) -> None:
         if hasattr(torch, "use_deterministic_algorithms"):
             try:
                 torch.use_deterministic_algorithms(True, warn_only=True)
-            except Exception:  # noqa: BLE001  — сред с CUDA-only ops пропускаем
+            except Exception:
                 logger.debug("torch.use_deterministic_algorithms unavailable")
 
     logger.info("ml_seeds_set", extra={"seed": seed})

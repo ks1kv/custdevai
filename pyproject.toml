@@ -148,6 +148,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S", "ASYNC"]
+"tests/ml/**/*.py" = ["S", "ASYNC", "T201"]  # print() в acceptance-тестах для диагностики метрик
 "alembic/env.py" = ["E402"]
 "alembic/versions/*.py" = ["E501", "I001"]
 "apps/api/cli.py" = ["T201"]  # print() is intentional CLI output
@@ -209,6 +210,12 @@ omit = [
     "*/tests/*",
     "*/__init__.py",
     "alembic/*",
+    # Phase 3 ML-инференс — покрывается @pytest.mark.ml тестами,
+    # которые не запускаются в обычном CI (требуют ~1.5 ГБ весов
+    # и тяжёлый стек transformers/bertopic/torch).
+    "apps/ml/sentiment/analyzer.py",
+    "apps/ml/topics/modeler.py",
+    "apps/worker/tasks/ml_pipeline.py",
 ]
 
 [tool.coverage.report]

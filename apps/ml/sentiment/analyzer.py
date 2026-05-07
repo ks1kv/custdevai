@@ -69,9 +69,7 @@ class RuBERTSentimentAnalyzer(SentimentAnalyzer):
                 AutoTokenizer,
             )
         except ImportError as exc:  # pragma: no cover — без ".[ml]" не вызывается
-            raise RuntimeError(
-                "Тональный анализ требует extras: pip install -e '.[ml]'"
-            ) from exc
+            raise RuntimeError("Тональный анализ требует extras: pip install -e '.[ml]'") from exc
 
         set_global_seeds(self._settings.sentiment_random_seed)
         cache_dir = self._settings.ml_model_cache_dir or None
@@ -91,9 +89,7 @@ class RuBERTSentimentAnalyzer(SentimentAnalyzer):
             },
         )
 
-    def analyze_batch(
-        self, texts: Sequence[str], *, threshold: float
-    ) -> list[SentimentInference]:
+    def analyze_batch(self, texts: Sequence[str], *, threshold: float) -> list[SentimentInference]:
         if not texts:
             return []
         self.warmup()
@@ -123,9 +119,7 @@ class RuBERTSentimentAnalyzer(SentimentAnalyzer):
                     logits = self._model(**tokens).logits
                 probs = torch.softmax(logits, dim=-1)
                 confidences, predicted = torch.max(probs, dim=-1)
-                ru_results = list(
-                    zip(predicted.tolist(), confidences.tolist(), strict=True)
-                )
+                ru_results = list(zip(predicted.tolist(), confidences.tolist(), strict=True))
             else:
                 ru_results = []
 
@@ -145,9 +139,7 @@ class RuBERTSentimentAnalyzer(SentimentAnalyzer):
                 label = self._map_label(pred_id)
                 if conf < threshold:
                     label = SentimentLabel.LOW_CONFIDENCE
-                inferences.append(
-                    SentimentInference(label=label, confidence=float(conf))
-                )
+                inferences.append(SentimentInference(label=label, confidence=float(conf)))
 
         return inferences
 
