@@ -39,3 +39,11 @@ class CampaignRepository:
 
     async def delete(self, campaign: Campaign) -> None:
         await self._session.delete(campaign)
+
+    async def get_running_for_invitation(self, campaign_id: int) -> Campaign | None:
+        """Возвращает кампанию, только если она в статусе RUNNING (FR-BOT-01)."""
+        stmt = select(Campaign).where(
+            Campaign.id == campaign_id, Campaign.status == CampaignStatus.RUNNING
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
