@@ -68,5 +68,12 @@ QUESTION_HINT_SUFFIX = "\n\nПодсказка: {hint}"
 RESEARCHER_NOTIFY_ALL_SESSIONS_COMPLETED = (
     "📊 Все сессии кампании «{campaign_title}» (id={campaign_id}) завершены.\n"
     "Завершено сессий: {completed_count}, прервано: {interrupted_count}.\n"
-    "ML-анализ запустится после реализации Phase 3."
+    "ML-анализ запущен — пришлю ещё одно сообщение после завершения."
+)
+
+
+RESEARCHER_NOTIFY_ANALYSIS_READY = (
+    "📈 ML-анализ кампании «{campaign_title}» (id={campaign_id}) завершён.\n"
+    "Найдено тем: {topics_count}, тональный анализ обработал {sentiment_inserted} ответов.\n"
+    "Подробности — в веб-панели после реализации Phase 4."
 )
