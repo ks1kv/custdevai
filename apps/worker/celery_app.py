@@ -20,4 +20,11 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
+    # Phase 3: автодискавер задач из apps/worker/tasks/.
+    imports=("apps.worker.tasks.ml_pipeline",),
+    # CELERY_TASK_ALWAYS_EAGER=True переключает eager-режим в тестах
+    # (синхронное выполнение без брокера).
+    task_always_eager=os.environ.get("CELERY_TASK_ALWAYS_EAGER", "").lower()
+    in {"1", "true", "yes"},
+    task_eager_propagates=True,
 )
