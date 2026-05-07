@@ -72,6 +72,24 @@ class Settings(BaseSettings):
     bruteforce_window_seconds: int = 600
     bruteforce_lock_seconds: int = 900
 
+    # --- ML modules (FR-SENT-*, FR-TOP-*, NFR-COR-01, NFR-SEC-09) -----------
+    sentiment_model_name: str = "DeepPavlov/rubert-base-cased"
+    sentiment_confidence_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    sentiment_random_seed: int = 42
+    sentiment_batch_size: int = Field(default=16, ge=1, le=128)
+    topic_embedder_name: str = "intfloat/multilingual-e5-base"
+    topic_default_count: int = Field(default=10, ge=3, le=20)
+    topic_min_count: int = Field(default=3, ge=2)
+    topic_max_count: int = Field(default=20, le=50)
+    topic_random_seed: int = 42
+    ml_model_cache_dir: str = "/models"
+    transformers_offline: bool = False
+
+    # --- Celery (FR-API-04) -------------------------------------------------
+    celery_broker_url: str = ""
+    celery_result_backend: str = ""
+    celery_task_always_eager: bool = False  # True в тестах
+
     @field_validator("jwt_algorithm")
     @classmethod
     def _check_algo(cls, v: str) -> str:

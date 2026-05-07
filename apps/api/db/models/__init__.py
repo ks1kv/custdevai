@@ -12,7 +12,7 @@ from apps.api.db.models.analysis import (
     Topic,
 )
 from apps.api.db.models.audit import AuditAction, AuditLog
-from apps.api.db.models.campaign import Campaign, CampaignStatus
+from apps.api.db.models.campaign import Campaign, CampaignAnalysisStatus, CampaignStatus
 from apps.api.db.models.consent import Consent
 from apps.api.db.models.script import Question, Script
 from apps.api.db.models.session import Answer, InterviewSession, SessionStatus
@@ -24,6 +24,7 @@ __all__ = [
     "AuditLog",
     "Base",
     "Campaign",
+    "CampaignAnalysisStatus",
     "CampaignStatus",
     "Consent",
     "InterviewSession",

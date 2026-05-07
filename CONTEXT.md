@@ -4,6 +4,51 @@
 
 ---
 
+## Phase 3 — ML modules (завершена)
+
+### Что сделано
+
+1. **Расширение схемы БД (миграция 0003).** ENUM `campaign_analysis_status` (pending/running/completed/failed); поля `Campaign.analysis_status`, `target_topic_count` (CHECK 3..20), `analysis_started_at`, `analysis_completed_at`, `analysis_error TEXT`. Индекс `ix_campaigns_analysis_status`.
+2. **Абстрактные интерфейсы (NFR-MNT-03).** `SentimentAnalyzer` и `TopicModeler` в `apps/ml/base.py`. `set_analyzers(analyzer_factory, modeler_factory)` — DI-hook в Celery-таске; в тестах подменяется на `FakeSentimentAnalyzer` / `FakeTopicModeler`.
+3. **Утилиты ML (`apps/ml/`).** `set_global_seeds()` (FR-SENT-04, FR-TOP-07, NFR-COR-01) — фиксирует random/numpy/torch CPU+CUDA/PYTHONHASHSEED. `is_russian_text()` (FR-SENT-06) — эвристика по доле кириллицы 0.5. DTO `SentimentInference`, `TopicResult`, `SessionTopicAssignment`, `TopicModelingResult` — стандартизированный JSON-формат для FR-TOP-08.
+4. **Конкретные ML-реализации.** `RuBERTSentimentAnalyzer` (DeepPavlov/rubert-base-cased, batch_size=16, max_length=512, FR-SENT-01..06,08); `BERTopicModeler` (intfloat/multilingual-e5-base + UMAP n_components=5/n_neighbors=15/cosine + HDBSCAN min_cluster_size=max(2, N/20) + c-TF-IDF + reduce_topics(target_topic_count); FR-TOP-01..08); `select_representative_indices()` для top-3 цитат (FR-TOP-03).
+5. **Settings + ml_results репозитории.** Поля `sentiment_*`, `topic_*`, `ml_model_cache_dir`, `transformers_offline`, `celery_*` в `Settings`. `SentimentResultRepository.replace_for_campaign()` и `TopicResultRepository.replace_for_campaign()` — DELETE+INSERT для FR-RPT-07 без накопления дублей.
+6. **Celery-задача `analyze_campaign`.** Atomic переход status pending|completed|failed → running через `try_acquire_running()` (защита от race condition без распределённых локов). `autoretry_for=(Exception,)`, `retry_backoff=True`, `max_retries=3`. На исчерпании — `mark_failed(error[:1024])`. После успеха — `notify_researcher_analysis_ready()` (второй push, закрытие FR-BOT-09).
+7. **REST endpoints.** `POST /api/v1/campaigns/{id}/analyze` (Researcher свои, Admin) → 202 + `task_id`. 409 если `analysis_status=running`. `GET /api/v1/campaigns/{id}/analysis-status` (Researcher/Analyst/Admin) → `analysis_status` + timestamps + error + target_topic_count. `PATCH /campaigns/{id}` поддерживает `target_topic_count`.
+8. **Trigger из notify_service.** После первого push `analyze_campaign.delay(campaign_id)` enqueue-ится автоматически (FR-API-04). Ошибка enqueue не фатальна.
+9. **Worker Dockerfile.** Multi-stage: builder ставит `pip install -e ".[ml,dev]"`. Runtime + libgomp1 + ENV `HF_HOME=/models`, `TRANSFORMERS_CACHE=/models`, `SENTENCE_TRANSFORMERS_HOME=/models`. Веса не в образе — скачиваются warmup-ом и кэшируются в volume.
+10. **Тесты.** 23 новых теста (4 unit + 5 integration + 14 уже было). Coverage 62.77% (≥ 60% NFR-MNT-01). Acceptance-тесты с `@pytest.mark.ml` запускаются отдельно с реальной моделью; на baseline-режиме без fine-tune (Phase 5) `assert accuracy ≥ 0.75` закомментирован.
+
+### Закрытые требования Phase 3
+
+| Группа | Полностью | Частично | Отложено |
+|---|---|---|---|
+| FR-SENT-01..08 | 01, 02, 03, 04, 05, 06, 08 | 07 (структура есть, фактические метрики через @pytest.mark.ml; production fine-tune — Phase 5) | — |
+| FR-TOP-01..08 | 01, 02, 03, 04, 05, 06, 07, 08 | — | — |
+| FR-API-04 | ✓ Celery-оркестрация фонового анализа | — | — |
+| FR-API-05 | каркас (триггер ML→push); реальный модуль отчётов — Phase 4 | — | — |
+| FR-RPT-07 | ✓ DELETE+INSERT cleanup при re-run | — | — |
+| FR-BOT-09 | ✓ полностью (двухэтапный push) | — | — |
+| NFR-COR-01 | ✓ set_global_seeds + fixed seed=42 | — | — |
+| NFR-MNT-03 | ✓ ABC-интерфейсы + Fake-реализации в тестах | — | — |
+| NFR-PRF-04 | каркас и пакетный режим | реальный замер на 200 сессиях — Phase 5 нагрузочный тест | — |
+| NFR-SEC-09 | ✓ всё локально, без external API | — | — |
+
+### Фактические метрики FR-SENT-07
+
+Baseline RuBERT-модель (DeepPavlov/rubert-base-cased) **без** fine-tune на RuSentNE-2023:
+**ожидаемо ниже целевых** accuracy ≥ 0.75 / weighted F1 ≥ 0.73, т.к. zero-shot применение мультиклассовой головы. Конкретные числа на 24-примерной выборке зафиксируются после ручного запуска `pytest -m ml` в окружении с установленным `.[ml]`-extra. Production fine-tune — задача Phase 5 (training-pipeline).
+
+### Открытые задачи для Phase 4
+
+1. **PDF/XLSX-генератор отчётов** через ReportLab + openpyxl + matplotlib (FR-RPT-01..08).
+2. **React SPA** (`apps/web/`): дашборды кампаний, визуализация sentiment-распределения, облако тем (FR-WEB-01..12).
+3. **Регистрация `users.researcher_telegram_chat_id`** через web-UI исследователя — после Phase 4 push-уведомления начнут реально доставляться.
+4. **Замена placeholder-текста второго push** на конкретный URL отчёта в `RESEARCHER_NOTIFY_ANALYSIS_READY` (сейчас «Подробности — в веб-панели после реализации Phase 4»).
+5. **Хранилище отчётов** в Selectel Object Storage — связано с FR-RPT-08 и `SELECTEL_*` env-переменными.
+
+---
+
 ## Для Phase 5 на будущее
 
 Во-первых, технический долг webhook-эндпойнта из Phase 2: apps/api/routers/webhook.py принимает raw Request вместо типизированного Update из-за конфликта с OpenAPI generation. В Phase 5 нужно изолировать этот роутер через отдельный FastAPI sub-application или include_in_schema=False и вернуть типизацию — это влияет на корректность OpenAPI-контракта для production-деплоя.

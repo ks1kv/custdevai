@@ -1,6 +1,23 @@
 # CustDevAI — архитектурные решения
 
-Этот документ фиксирует ключевые архитектурные решения, принятые на Phase 1 (Foundation) и Phase 2 (Telegram bot), и обоснования за ними. Обновляется по мере развития системы.
+Этот документ фиксирует ключевые архитектурные решения, принятые на Phase 1 (Foundation), Phase 2 (Telegram bot) и Phase 3 (ML modules), и обоснования за ними. Обновляется по мере развития системы.
+
+## Phase 3 — решения по ML-модулям
+
+- **Стек ML фиксирован проектным решением** (см. §1.4.3–1.4.5 теор. главы): DeepPavlov/rubert-base-cased для sentiment (макро-F1 0.6–0.7 на RuSentNE-2023), BERTopic 0.16+ с эмбеддером intfloat/multilingual-e5-base, UMAP n_components=5/n_neighbors=15/cosine + HDBSCAN min_cluster_size=max(2, N/20)/euclidean, c-TF-IDF для 5–10 ключевых слов на тему. Не пересматривается.
+- **Все ML-операции локально** (FR-SENT-08, NFR-SEC-09): никаких внешних API. Это конкурентное преимущество относительно Strella / Outset AI / Listen Labs (см. §2.4.2 аналитической главы).
+- **Абстрактные интерфейсы** `SentimentAnalyzer` и `TopicModeler` в `apps/ml/base.py` (NFR-MNT-03). Конкретные реализации `RuBERTSentimentAnalyzer` и `BERTopicModeler` подключаются через `set_analyzers(analyzer_factory, modeler_factory)` в Celery-таске. В тестах `FakeSentimentAnalyzer` / `FakeTopicModeler` подменяют их без загрузки 1.5 ГБ весов.
+- **Воспроизводимость** (FR-SENT-04, FR-TOP-07, NFR-COR-01): `set_global_seeds(42)` фиксирует random, numpy.random, torch CPU+CUDA, PYTHONHASHSEED. `torch.use_deterministic_algorithms(warn_only=True)` для cuDNN. UMAP/HDBSCAN получают `random_state=42`. Все seed-значения логируются в `ml_pipeline_start` structured-event.
+- **Идемпотентность повторного запуска** (FR-RPT-07): `SentimentResultRepository.replace_for_campaign()` и `TopicResultRepository.replace_for_campaign()` делают DELETE+INSERT в одной транзакции. Дублей не накапливается. ON DELETE CASCADE на `topics → session_topics` из Phase 1 чистит связки автоматически.
+- **Atomic status-lock** на `campaigns.analysis_status`: единый UPDATE с условием `IN (pending, completed, failed)` отсекает двойной запуск двух конкурирующих Celery-тасок (rowcount=0 → skip). Защита от race-condition без распределённых блокировок.
+- **Celery-задача `analyze_campaign`**: `autoretry_for=(Exception,)`, `retry_backoff=True`, `retry_backoff_max=300`, `retry_jitter=True`, `max_retries=3`. На исчерпании ретраев — `mark_failed(error[:1024])`. Аналитик повторяет вручную через `POST /api/v1/campaigns/{id}/analyze`.
+- **FR-SENT-06 (только русский)**: эвристика по доле кириллических букв с порогом 0.5. Не-русские ответы помечаются `is_language_error=True` и пропускаются репозиторием при INSERT — не загрязняют статистику.
+- **FR-TOP-03 (top-3 цитаты)**: cosine-distance от centroid эмбеддингов кластера, sparse-схема хранения: для top-3 ассоциаций `session_topics.representative_quote = текст ответа`, для остальных — NULL. Без новой колонки `distance_to_centroid`.
+- **FR-TOP-04 (target_topic_count)**: `campaigns.target_topic_count SMALLINT NOT NULL DEFAULT 10 CHECK BETWEEN 3 AND 20` через миграцию 0003. Настраивается через `PATCH /api/v1/campaigns/{id}`. Переживает re-run.
+- **FR-BOT-09 закрытие — двухэтапный push**: первый «все сессии завершены, ML-анализ запущен» из Phase 2 + второй «ML-анализ завершён» из Phase 3 (`notify_researcher_analysis_ready`). Текст с количествами тем и ответов, без URL до Phase 4.
+- **Trigger автоматического запуска**: после первого push `notify_service.maybe_notify_researcher_all_completed()` шлёт `analyze_campaign.delay(campaign_id)`. При недоступности Celery-брокера ошибка enqueue логируется но не фатальна — аналитик запустит вручную.
+
+---
 
 ## Phase 2 — решения по Telegram-боту
 

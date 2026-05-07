@@ -72,13 +72,13 @@ async def test_engine():
     )
 
     async with engine.begin() as conn:
-        # Постгрес-only типы (ARRAY, JSONB, INET) идут через with_variant.
-        # SentimentResult / Topic / SessionTopic используют ARRAY — они
-        # не нужны для Phase 2 интеграционных тестов.
+        # На Phase 3 sentiment_results включён в схему. topics + session_topics
+        # используют PG-only ARRAY(Text), на SQLite не поддерживается;
+        # пропускаем — Phase 3 ML-тесты используют FakeModeler без INSERT
+        # в topics (orchestration уровень).
         skip = {
             "topics",
             "session_topics",
-            "sentiment_results",
         }
         meta = Base.metadata
         await conn.run_sync(
