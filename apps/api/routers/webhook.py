@@ -20,7 +20,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import Update
-from fastapi import APIRouter, Header, status
+from fastapi import APIRouter, Header, Request, status
 
 from apps.api.config import Settings
 from apps.api.deps import SettingsDep
@@ -55,15 +55,20 @@ def _get_bot_and_dispatcher(settings: Settings) -> tuple[Bot, Dispatcher]:
     summary="Telegram Bot API webhook",
 )
 async def telegram_webhook(
-    update: Update,
+    request: Request,
     settings: SettingsDep,
     x_telegram_bot_api_secret_token: Annotated[
         str | None, Header(alias="X-Telegram-Bot-Api-Secret-Token")
     ] = None,
 ) -> dict[str, str]:
+    """Принимает raw JSON; парсит Update внутри, чтобы тяжёлая Update-схема
+    aiogram не попадала в OpenAPI и не ломала get_openapi()."""
     expected = settings.telegram_webhook_secret
     if expected and x_telegram_bot_api_secret_token != expected:
         raise AuthenticationFailed("Невалидный webhook-secret.")
+
+    body = await request.json()
+    update = Update.model_validate(body)
 
     bot, dp = _get_bot_and_dispatcher(settings)
     try:
@@ -71,6 +76,5 @@ async def telegram_webhook(
     except Exception as exc:  # noqa: BLE001
         logger.exception("webhook handler failed: %s", exc)
         # Telegram повторит доставку при non-200 → отдаём 200 даже при
-        # внутренней ошибке (FR-API-08 идемпотентность всё равно защитит
-        # от дубля answer-а).
+        # внутренней ошибке (FR-API-08 идемпотентность защитит от дубля).
     return {"status": "ok"}
