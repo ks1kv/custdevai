@@ -4,6 +4,48 @@
 
 ---
 
+## Phase 2 — Telegram bot (завершена)
+
+### Что сделано
+
+1. **Модель Consent + миграция 0002.** Таблица `consents(id, session_id UNIQUE, granted_at, ip_address_hash, consent_version)` для FR-BOT-01 (явное согласие, № 152-ФЗ); поле `users.researcher_telegram_chat_id BIGINT NULL` для push-уведомлений (FR-BOT-09).
+2. **aiogram-dispatcher с RedisStorage.** `apps/bot/dispatcher.py`: TTL FSM-state = 48 часов (FR-BOT-05), namespace `bot_fsm`. FSM-states: `AWAITING_CONSENT → IN_INTERVIEW → COMPLETED|INTERRUPTED`, плюс `IN_INTERVIEW_LONG_ANSWER` для FR-BOT-08.
+3. **Deep-link парсер** (`apps/bot/deeplink.py`): `c<campaign_id>` без HMAC; защита через `Campaign.status == RUNNING`.
+4. **`/start` handler** (`apps/bot/handlers/start.py`): создаёт сессию через `begin_session()`, telegram_id хешируется через `hash_telegram_id()` с per-campaign salt (FR-BOT-10, FR-DB-03). Resume-сценарий поддерживается (повторный `/start` с тем же telegram_id возвращает к текущему вопросу).
+5. **Согласие** (`apps/bot/handlers/consent.py`): callback на inline-кнопку «✅ Согласен», `record_consent()` с `INSERT ... ON CONFLICT DO NOTHING` на UNIQUE(session_id) — двойное нажатие идемпотентно.
+6. **ACID-приём ответа** (`apps/bot/services/interview_service.py:accept_answer`): `INSERT answer + UPDATE sessions.progress_count` в одном `async with db.begin()` (FR-DB-02). `ON CONFLICT DO NOTHING` на UNIQUE(session_id, question_id) защищает от повторного update от Telegram (FR-API-08).
+7. **Длинные ответы** (FR-BOT-08): чанки накапливаются в FSM-data, склейка через `\n` после нажатия inline-кнопки «✅ Готово».
+8. **Отказ от non-text** (FR-BOT-04): `apps/bot/handlers/interview.py` и `apps/bot/handlers/reject.py` отвечают «Принимаю только текст», state не меняется.
+9. **`/stop`** (FR-BOT-06): `mark_interrupted()` → `status=INTERRUPTED`, ответы НЕ удаляются.
+10. **Завершение** (FR-BOT-07): `mark_completed()` после ответа на последний вопрос, отправка `COMPLETED_MESSAGE`, очистка FSM-state.
+11. **Уведомление исследователю** (FR-BOT-09 первый этап): `notify_service.maybe_notify_researcher_all_completed()` шлёт push при `count_active_in_campaign == 0`. Если `chat_id` не зарегистрирован — лог-skip.
+12. **Webhook endpoint** (`apps/api/routers/webhook.py`): `POST /api/v1/telegram/webhook` (FR-API-03). Валидирует `X-Telegram-Bot-Api-Secret-Token` против `TELEGRAM_WEBHOOK_SECRET` (NFR-SEC-06), парсит Update вручную (`Request` → `Update.model_validate(body)`) и форвардит в lazy-init dispatcher.
+13. **Реальный bot main.py** (`apps/bot/main.py`): заменяет stub Phase 1. В dev — `dp.start_polling`; в prod — `bot.set_webhook` + `asyncio.Event().wait()`, FastAPI обрабатывает входящие.
+14. **Тесты.** 35 новых тестов (4 unit + 10 integration + остальные косвенно через Settings/общие фикстуры). Покрытие 61.88% (≥ 60% NFR-MNT-01).
+
+### Закрытые требования Phase 2
+
+| Группа | Полностью | Частично | Отложено |
+|---|---|---|---|
+| FR-BOT-01..10 | 01, 02, 03, 04, 05, 06, 07, 08, 10 | 09 (структура push-а есть, реальная доставка зависит от регистрации chat_id — Phase 4) | — |
+| FR-API-03 | ✓ webhook endpoint с secret-token | — | — |
+| FR-API-08 | ✓ ON CONFLICT DO NOTHING + UNIQUE(session_id, question_id) | — | — |
+| FR-DB-02 | ✓ ACID INSERT+UPDATE в одной транзакции | — | — |
+| FR-DB-03 | ✓ hash_telegram_id, per-campaign salt | — | — |
+| NFR-SEC-06 | ✓ webhook secret в env | — | — |
+| NFR-SEC-08 | ✓ согласие зафиксировано | — | — |
+| NFR-COR-02 | ✓ question_id хранится | — | — |
+
+### Открытые задачи для Phase 3
+
+1. **Celery-задачи ML-анализа.** После `mark_completed()` всех сессий нужно поставить в очередь `analyze_campaign(campaign_id)`. Сигнал доходит из `interview_service.handle_answer` или из `notify_service` (когда уже знаем, что active=0).
+2. **Второй этап push-уведомления (FR-BOT-09 завершение).** После окончания ML-анализа — отдельный push «Анализ готов, отчёт по ссылке».
+3. **48-часовой sweeper.** Celery-beat-таск каждые 15 минут: `UPDATE sessions SET status='interrupted' WHERE status='active' AND last_activity_at < now() - 48h`. Минимально, ~30 строк.
+4. **Транзакционность вокруг отправки сообщения Telegram.** Сейчас порядок: commit БД → отправить bot.answer(). Если bot.answer() упал, ответ в БД сохранён, респондент не увидел подтверждения — на повторный вопрос ответит → ON CONFLICT защитит. ОК для Phase 2, но в Phase 5 стоит добавить outbox-pattern для надёжной доставки.
+5. **Регистрация `users.researcher_telegram_chat_id`** через web-UI исследователя — Phase 4. До этого notify_service всегда skip-ит push.
+
+---
+
 ## Phase 1 — Foundation (завершена)
 
 ### Что сделано
