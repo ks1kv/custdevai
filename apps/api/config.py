@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     # --- Pseudonymization (FR-DB-03) ----------------------------------------
     pseudonym_master_salt: str = Field(min_length=32)
 
+    # --- Telegram bot (FR-BOT-*) -------------------------------------------
+    telegram_bot_token: str = ""
+    telegram_webhook_url: str = ""
+    telegram_webhook_secret: str = ""
+    telegram_notify_bot_token: str = ""
+
     # --- Pagination (NFR-PRF-03) --------------------------------------------
     default_page_size: int = Field(default=50, gt=0)
     max_page_size: int = Field(default=100, gt=0)
