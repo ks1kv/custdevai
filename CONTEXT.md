@@ -4,6 +4,14 @@
 
 ---
 
+## Для Phase 5 на будущее
+
+Во-первых, технический долг webhook-эндпойнта из Phase 2: apps/api/routers/webhook.py принимает raw Request вместо типизированного Update из-за конфликта с OpenAPI generation. В Phase 5 нужно изолировать этот роутер через отдельный FastAPI sub-application или include_in_schema=False и вернуть типизацию — это влияет на корректность OpenAPI-контракта для production-деплоя.
+Во-вторых, sweeper 48-часовых сессий (FR-BOT-05): реализован только FSM TTL в Redis, статус active в БД не переводится в interrupted автоматически. В Phase 5 нужна Celery beat-таска sessions_sweeper — SELECT sessions WHERE status='active' AND last_activity_at < now() - interval '48 hours', пакетный UPDATE в interrupted. Без этого аналитика по завершённости кампаний будет занижена.
+В-третьих, HMAC-подпись deep-link (Вопрос 4 из плана Phase 2): сейчас c<campaign_id> без подписи. При росте аудитории и появлении недобросовестных участников нужно добавить c<campaign_id>.<hmac_sha256(campaign_id, master_secret)> — это защищает от перебора campaign_id и спам-сессий на чужих кампаниях.
+В-четвёртых, Retry-After заголовок при 429 (FR-AUTH-08): в Phase 1 брутфорс-защита возвращает 429 без Retry-After. RFC 6585 требует этот заголовок для корректной обработки клиентом. Добавить в _api_error_handler для RateLimited — одна строка, но пропущена при первоначальной реализации.
+В-пятых, нагрузочный тест NFR-PRF-06 (50 одновременных сессий, ≤ 3 сек отклик): не проводился ни в Phase 1, ни в Phase 2. Phase 5 должна включать locust- или k6-сценарий с 50 параллельными ботами, имитирующими ответы на вопросы, с измерением p95-времени отклика и мониторингом asyncpg connection pool exhaustion.
+
 ## Phase 2 — Telegram bot (завершена)
 
 ### Что сделано
