@@ -73,7 +73,7 @@ async def telegram_webhook(
     bot, dp = _get_bot_and_dispatcher(settings)
     try:
         await dp.feed_update(bot, update)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.exception("webhook handler failed: %s", exc)
         # Telegram повторит доставку при non-200 → отдаём 200 даже при
         # внутренней ошибке (FR-API-08 идемпотентность защитит от дубля).

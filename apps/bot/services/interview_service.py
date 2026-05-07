@@ -21,15 +21,13 @@ MAX_ANSWER_LENGTH = 4096
 class AnswerResult:
     """Результат accept_answer для handler-а."""
 
-    inserted: bool          # True если был реальный INSERT, False если ON CONFLICT
-    is_last: bool            # это был последний вопрос?
+    inserted: bool  # True если был реальный INSERT, False если ON CONFLICT
+    is_last: bool  # это был последний вопрос?
     next_question: Question | None  # вопрос, который надо отправить дальше
 
 
 def format_question(question: Question, index: int, total: int) -> str:
-    body = messages.QUESTION_TEMPLATE.format(
-        idx=index + 1, total=total, text=question.text
-    )
+    body = messages.QUESTION_TEMPLATE.format(idx=index + 1, total=total, text=question.text)
     if question.hint_text:
         body += messages.QUESTION_HINT_SUFFIX.format(hint=question.hint_text)
     return body

@@ -44,11 +44,22 @@ _patch_bigint_for_sqlite()
 async def test_engine():
     pytest.importorskip("aiosqlite")
     engine = create_async_engine(TEST_DATABASE_URL, future=True)
+
+    # SQLite не знает функцию char_length() (Postgres-only). Регистрируем
+    # её на каждое подключение как алиас len() — нужно для CHECK-constraint
+    # answers_text_length (FR-API-08 + FR-BOT-08 валидация длины).
+    from sqlalchemy import event
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _register_char_length(dbapi_connection, _record):
+        dbapi_connection.create_function("char_length", 1, lambda s: len(s) if s else 0)
+
     # Создаём только подмножество таблиц, не зависящих от Postgres-only типов.
     # Полная схема проверяется отдельно интеграционным test_migrations.
     from apps.api.db.models import (  # noqa: F401  (нужно для регистрации в metadata)
         AuditLog,
         Campaign,
+        Consent,
         InterviewSession,
         Question,
         Role,
@@ -61,14 +72,13 @@ async def test_engine():
     )
 
     async with engine.begin() as conn:
-        # Создаём только те таблицы, чьи столбцы поддерживаются sqlite
-        # (исключаем audit_log с INET/JSONB, topics с ARRAY).
+        # Постгрес-only типы (ARRAY, JSONB, INET) идут через with_variant.
+        # SentimentResult / Topic / SessionTopic используют ARRAY — они
+        # не нужны для Phase 2 интеграционных тестов.
         skip = {
             "topics",
             "session_topics",
             "sentiment_results",
-            "answers",  # CheckConstraint(char_length) PG-specific
-            "sessions",
         }
         meta = Base.metadata
         await conn.run_sync(

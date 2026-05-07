@@ -34,6 +34,7 @@ router = Router(name="bot.interview")
 
 # ---- /stop ------------------------------------------------------------------
 
+
 @router.message(Command("stop"))
 async def handle_stop(message: Message, state: FSMContext) -> None:
     """FR-BOT-06: из любого состояния — закрыть сессию как INTERRUPTED.
@@ -48,14 +49,13 @@ async def handle_stop(message: Message, state: FSMContext) -> None:
         async with open_session() as db:
             await mark_interrupted(db, int(session_id))
             if campaign_id is not None:
-                await maybe_notify_researcher_all_completed(
-                    db, campaign_id=int(campaign_id)
-                )
+                await maybe_notify_researcher_all_completed(db, campaign_id=int(campaign_id))
     await state.clear()
     await message.answer(messages.INTERRUPTED_MESSAGE)
 
 
 # ---- Текстовый ответ в IN_INTERVIEW -----------------------------------------
+
 
 @router.message(InterviewState.IN_INTERVIEW, F.text)
 async def handle_answer(message: Message, state: FSMContext) -> None:
@@ -101,7 +101,7 @@ async def _persist_and_advance(message: Message, state: FSMContext, text: str) -
                 text=text,
                 questions=questions,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.exception("accept_answer failed: %s", exc)
             await message.answer(messages.INTERNAL_ERROR)
             return
@@ -112,9 +112,7 @@ async def _persist_and_advance(message: Message, state: FSMContext, text: str) -
 
     # Подтверждение (только после commit-а в accept_answer).
     if not result.is_last and result.next_question is not None:
-        index = next(
-            (i for i, q in enumerate(questions) if q.id == result.next_question.id), 0
-        )
+        index = next((i for i, q in enumerate(questions) if q.id == result.next_question.id), 0)
         await state.update_data({DATA_CURRENT_QUESTION_ID: result.next_question.id})
         await message.answer(messages.ANSWER_ACCEPTED_SHORT)
         await message.answer(format_question(result.next_question, index, len(questions)))
@@ -124,6 +122,7 @@ async def _persist_and_advance(message: Message, state: FSMContext, text: str) -
 
 
 # ---- Длинный ответ: накопление чанков ---------------------------------------
+
 
 @router.message(InterviewState.IN_INTERVIEW_LONG_ANSWER, F.text)
 async def handle_long_answer_chunk(message: Message, state: FSMContext) -> None:
@@ -139,9 +138,7 @@ async def handle_long_answer_chunk(message: Message, state: FSMContext) -> None:
     )
 
 
-@router.callback_query(
-    F.data == LONG_ANSWER_DONE_CALLBACK, InterviewState.IN_INTERVIEW_LONG_ANSWER
-)
+@router.callback_query(F.data == LONG_ANSWER_DONE_CALLBACK, InterviewState.IN_INTERVIEW_LONG_ANSWER)
 async def handle_long_answer_done(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     chunks: list[str] = list(data.get(DATA_PENDING_CHUNKS) or [])
@@ -150,10 +147,10 @@ async def handle_long_answer_done(callback: CallbackQuery, state: FSMContext) ->
         return
     full_text = "\n".join(chunks)
     if isinstance(callback.message, Message):
-        try:
+        import contextlib
+
+        with contextlib.suppress(Exception):
             await callback.message.edit_reply_markup(reply_markup=None)
-        except Exception:  # noqa: BLE001
-            pass
         # очищаем чанки и возвращаемся в IN_INTERVIEW
         await state.update_data({DATA_PENDING_CHUNKS: []})
         await state.set_state(InterviewState.IN_INTERVIEW)
@@ -162,6 +159,7 @@ async def handle_long_answer_done(callback: CallbackQuery, state: FSMContext) ->
 
 
 # ---- Non-text fallback в IN_INTERVIEW ---------------------------------------
+
 
 @router.message(InterviewState.IN_INTERVIEW)
 @router.message(InterviewState.IN_INTERVIEW_LONG_ANSWER)

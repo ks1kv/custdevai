@@ -13,7 +13,9 @@ from apps.bot.db import open_session
 from apps.bot.keyboards import CONSENT_CALLBACK
 from apps.bot.services.consent_service import record_consent
 from apps.bot.services.interview_service import format_question
-from apps.bot.services.session_service import begin_session  # noqa: F401  (для типизации контекста — не нужен здесь, но напоминание)
+from apps.bot.services.session_service import (
+    begin_session,  # noqa: F401  (для типизации контекста — не нужен здесь, но напоминание)
+)
 from apps.bot.states import (
     DATA_CAMPAIGN_ID,
     DATA_CONSENT_VERSION,
@@ -67,10 +69,12 @@ async def handle_consent_yes(callback: CallbackQuery, state: FSMContext) -> None
 
     if isinstance(callback.message, Message):
         # Убираем inline-клавиатуру у предыдущего сообщения.
-        try:
+        # contextlib.suppress: edit может фейлиться по разным причинам
+        # (сообщение уже редактировалось, message_id устарел) — это не критично.
+        import contextlib
+
+        with contextlib.suppress(Exception):
             await callback.message.edit_reply_markup(reply_markup=None)
-        except Exception:  # noqa: BLE001  — не критично, edit может фейлиться по разным причинам
-            pass
         await callback.message.answer(format_question(target, index, len(questions)))
     await callback.answer()
 

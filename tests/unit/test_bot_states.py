@@ -68,6 +68,4 @@ async def test_long_answer_state_separate_from_in_interview(
 ) -> None:
     await fsm_context.set_state(InterviewState.IN_INTERVIEW)
     await fsm_context.set_state(InterviewState.IN_INTERVIEW_LONG_ANSWER)
-    assert (
-        await fsm_context.get_state() == InterviewState.IN_INTERVIEW_LONG_ANSWER.state
-    )
+    assert await fsm_context.get_state() == InterviewState.IN_INTERVIEW_LONG_ANSWER.state

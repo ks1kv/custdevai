@@ -21,9 +21,7 @@ from apps.bot import messages
 logger = logging.getLogger(__name__)
 
 
-async def maybe_notify_researcher_all_completed(
-    db: AsyncSession, *, campaign_id: int
-) -> None:
+async def maybe_notify_researcher_all_completed(db: AsyncSession, *, campaign_id: int) -> None:
     """Если в кампании больше нет ACTIVE-сессий — отправить push исследователю.
 
     Граничные случаи:

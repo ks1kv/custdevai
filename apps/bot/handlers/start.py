@@ -27,9 +27,7 @@ router = Router(name="bot.start")
 
 
 @router.message(CommandStart())
-async def handle_start(
-    message: Message, command: CommandObject, state: FSMContext
-) -> None:
+async def handle_start(message: Message, command: CommandObject, state: FSMContext) -> None:
     """`/start c<campaign_id>` — единственная точка входа в интервью.
 
     На каждом шаге сообщения и состояния идут на русском (CLAUDE.md §4).
