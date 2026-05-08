@@ -108,8 +108,9 @@ docker-compose.override.yml
 
 # ---- Generated reports and uploads ----
 # Reports generated for actual campaigns must NEVER be committed
-# (contains potentially sensitive interview data).
-reports/
+# (contains potentially sensitive interview data). Pattern is anchored at
+# repo root, so apps/api/reports/ (Python module, not artifacts) is unaffected.
+/reports/
 uploads/
 exports/
 *.pdf
