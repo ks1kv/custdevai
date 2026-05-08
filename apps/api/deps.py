@@ -74,16 +74,12 @@ async def get_current_user(
     settings: SettingsDep,
     revoked: RevocationDep,
     authorization: Annotated[str | None, Header(alias="Authorization")] = None,
-    access_cookie: Annotated[
-        str | None, Cookie(alias="access_token")
-    ] = None,
+    access_cookie: Annotated[str | None, Cookie(alias="access_token")] = None,
 ) -> CurrentUser:
     """Декодировать access-токен из заголовка Authorization или cookie (SPA)."""
     token = _extract_bearer_token(authorization) or access_cookie
     if not token:
-        raise AuthenticationFailed(
-            "Требуется access-токен (заголовок Authorization или cookie)."
-        )
+        raise AuthenticationFailed("Требуется access-токен (заголовок Authorization или cookie).")
     payload: TokenPayload = decode_token(token, settings=settings)
     if payload.type is not TokenType.ACCESS:
         raise AuthenticationFailed("Ожидался access-токен.")

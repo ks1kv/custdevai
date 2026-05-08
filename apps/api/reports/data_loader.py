@@ -149,9 +149,7 @@ async def load_campaign_report_context(
         if question is None:
             continue
         sentiment_label = sentiment.label if sentiment is not None else None
-        sentiment_confidence = (
-            float(sentiment.confidence) if sentiment is not None else None
-        )
+        sentiment_confidence = float(sentiment.confidence) if sentiment is not None else None
         if sentiment_label is not None:
             sentiment_distribution[sentiment_label] += 1
         answers.append(
@@ -199,9 +197,7 @@ async def load_campaign_report_context(
                 continue
             quotes_by_topic[st.topic_id].append(
                 (
-                    pseudonym_by_session.get(
-                        st.session_id, session_to_pseudonym(st.session_id)
-                    ),
+                    pseudonym_by_session.get(st.session_id, session_to_pseudonym(st.session_id)),
                     quote,
                 )
             )

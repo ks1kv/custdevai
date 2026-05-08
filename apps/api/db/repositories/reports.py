@@ -35,9 +35,7 @@ class ReportRepository:
         items = (await self._session.execute(items_stmt)).scalars().all()
         return items, int(total)
 
-    async def latest_for_campaign(
-        self, campaign_id: int, *, fmt: ReportFormat
-    ) -> Report | None:
+    async def latest_for_campaign(self, campaign_id: int, *, fmt: ReportFormat) -> Report | None:
         stmt = (
             select(Report)
             .where(Report.campaign_id == campaign_id, Report.format == fmt)

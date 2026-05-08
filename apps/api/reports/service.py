@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.config import Settings
 from apps.api.db.models import (
-    Campaign,
     CampaignAnalysisStatus,
     Report,
     ReportFormat,
@@ -82,9 +81,7 @@ class ReportService:
             )
 
         now = _utcnaive()
-        ctx = await load_campaign_report_context(
-            self._session, campaign_id, generated_at=now
-        )
+        ctx = await load_campaign_report_context(self._session, campaign_id, generated_at=now)
 
         # CPU-bound рендер в threadpool.
         loop = asyncio.get_event_loop()
@@ -95,10 +92,7 @@ class ReportService:
         elif fmt == ReportFormat.XLSX:
             data = await loop.run_in_executor(None, _render_xlsx_sync, ctx)
             extension = "xlsx"
-            content_type = (
-                "application/vnd.openxmlformats-officedocument."
-                "spreadsheetml.sheet"
-            )
+            content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         else:  # pragma: no cover  — ENUM защищает
             raise ValueError(f"Unsupported format: {fmt}")
 

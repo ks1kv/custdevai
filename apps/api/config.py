@@ -67,9 +67,7 @@ class Settings(BaseSettings):
     reports_storage_dir: str = "/var/lib/custdevai/reports"
     cookie_secure: bool | None = None  # None → derive from is_production
     cookie_samesite: str = "strict"  # "strict" | "lax" | "none"
-    cors_allow_origins: list[str] = Field(
-        default_factory=lambda: ["http://localhost:5173"]
-    )
+    cors_allow_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
     spa_dist_dir: str = ""  # Phase 5: путь к собранному dist/; в dev пуст
     web_base_url: str = "http://localhost:5173"  # для построения URL отчётов в push
 

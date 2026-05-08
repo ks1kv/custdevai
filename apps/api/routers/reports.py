@@ -60,15 +60,13 @@ async def list_reports(
     actor: CurrentUser = Depends(_reader),
 ) -> Page[ReportOut]:
     pagination.validated()
+    from apps.api.db.repositories.campaigns import CampaignRepository
     from apps.api.db.repositories.reports import ReportRepository
 
-    # Доступ — через ReportService.get() было бы тяжело для list-а;
-    # вместо этого проверяем владение кампанией один раз.
-    service = ReportService(session=session, settings=settings)
-    # Минимальный gate: загружаем кампанию через сервис, кидаем NotFound
-    # если её нет / не принадлежит. Используем report-repo напрямую для list.
-    from apps.api.db.repositories.campaigns import CampaignRepository
-
+    # Минимальный gate: загружаем кампанию, кидаем NotFound если её нет /
+    # не принадлежит. Используем report-repo напрямую для list (settings
+    # переданы Depends-ом, но в этом эндпоинте сервис не нужен).
+    _ = settings
     owner_id = _owner_filter(actor)
     campaign = await CampaignRepository(session).get(campaign_id)
     if campaign is None or (owner_id is not None and campaign.created_by_user_id != owner_id):

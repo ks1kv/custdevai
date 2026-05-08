@@ -20,7 +20,7 @@ from apps.api.config import Settings
 class StoragePutResult:
     """Что вернёт `put()` после успешной записи."""
 
-    file_path: str       # абстрактный ключ внутри backend (для S3 — object key)
+    file_path: str  # абстрактный ключ внутри backend (для S3 — object key)
     file_size: int
     sha256: bytes
 
@@ -97,10 +97,7 @@ class LocalFileSystemBackend(StorageBackend):
         ext = target.suffix.lower().lstrip(".")
         content_type = {
             "pdf": "application/pdf",
-            "xlsx": (
-                "application/vnd.openxmlformats-officedocument."
-                "spreadsheetml.sheet"
-            ),
+            "xlsx": ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
         }.get(ext, "application/octet-stream")
         return StorageObject(file_path=key, content=content, content_type=content_type)
 

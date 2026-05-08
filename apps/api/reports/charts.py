@@ -15,12 +15,16 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import matplotlib
+
+# Headless backend нужно установить ДО первого импорта pyplot —
+# иначе matplotlib инициализирует Tk/Qt и упадёт без $DISPLAY.
+matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt
+from matplotlib import font_manager
+
 from apps.api.db.models import SentimentLabel
 from apps.api.reports.data_loader import TopicView
-
-matplotlib.use("Agg")  # noqa: E402
-import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib import font_manager  # noqa: E402
 
 _FONT_DIR = Path(__file__).parent / "fonts"
 _REGULAR = _FONT_DIR / "DejaVuSans.ttf"

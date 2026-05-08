@@ -51,9 +51,7 @@ def _service(
     )
 
 
-def _set_auth_cookies(
-    response: Response, *, tokens: TokenPair, settings: Settings
-) -> None:
+def _set_auth_cookies(response: Response, *, tokens: TokenPair, settings: Settings) -> None:
     """Установить httpOnly cookies для SPA (Phase 4)."""
     access_max_age = settings.jwt_access_token_ttl_minutes * 60
     refresh_max_age = settings.jwt_refresh_token_ttl_days * 86400
@@ -114,9 +112,7 @@ async def refresh(
     bf: BruteForceDep,
     revocation: RevocationDep,
     refresh_store: RefreshStoreDep,
-    cookie_refresh: Annotated[
-        str | None, Cookie(alias=REFRESH_COOKIE_NAME)
-    ] = None,
+    cookie_refresh: Annotated[str | None, Cookie(alias=REFRESH_COOKIE_NAME)] = None,
     set_cookie: bool = Query(default=False, alias="set_cookie"),
 ) -> TokenPair:
     """Принимает refresh-токен из тела или из cookie (если SPA)."""
@@ -141,9 +137,7 @@ async def logout(
     bf: BruteForceDep,
     revocation: RevocationDep,
     refresh_store: RefreshStoreDep,
-    cookie_refresh: Annotated[
-        str | None, Cookie(alias=REFRESH_COOKIE_NAME)
-    ] = None,
+    cookie_refresh: Annotated[str | None, Cookie(alias=REFRESH_COOKIE_NAME)] = None,
 ) -> dict[str, str]:
     service = _service(session, settings, bf, revocation, refresh_store)
     refresh_token = None

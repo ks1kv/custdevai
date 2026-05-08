@@ -47,7 +47,7 @@ _FONTS_REGISTERED = False
 
 def _register_fonts() -> None:
     """Регистрация Cyrillic-шрифтов в ReportLab. Идемпотентно."""
-    global _FONTS_REGISTERED  # noqa: PLW0603
+    global _FONTS_REGISTERED
     if _FONTS_REGISTERED:
         return
     pdfmetrics.registerFont(TTFont(_FONT_REGULAR, str(_FONT_DIR / "DejaVuSans.ttf")))
@@ -180,15 +180,9 @@ class PDFReportGenerator:
 
     def _summary(self, story: list) -> None:
         story.append(Paragraph("Общая сводка", self._styles["h1"]))
-        completed = sum(
-            1 for s in self._ctx.sessions if s.status == SessionStatus.COMPLETED
-        )
-        interrupted = sum(
-            1 for s in self._ctx.sessions if s.status == SessionStatus.INTERRUPTED
-        )
-        active = sum(
-            1 for s in self._ctx.sessions if s.status == SessionStatus.ACTIVE
-        )
+        completed = sum(1 for s in self._ctx.sessions if s.status == SessionStatus.COMPLETED)
+        interrupted = sum(1 for s in self._ctx.sessions if s.status == SessionStatus.INTERRUPTED)
+        active = sum(1 for s in self._ctx.sessions if s.status == SessionStatus.ACTIVE)
 
         rows = [
             ["Всего сессий", str(len(self._ctx.sessions))],
@@ -209,9 +203,7 @@ class PDFReportGenerator:
     def _sentiment_section(self, story: list) -> None:
         story.append(Paragraph("Анализ тональности", self._styles["h1"]))
         if not self._ctx.sentiment_distribution:
-            story.append(
-                Paragraph("Тональный анализ не проводился.", self._styles["body"])
-            )
+            story.append(Paragraph("Тональный анализ не проводился.", self._styles["body"]))
             return
         png = render_sentiment_pie(self._ctx.sentiment_distribution)
         story.append(Image(io.BytesIO(png), width=140 * mm, height=90 * mm))
@@ -235,9 +227,7 @@ class PDFReportGenerator:
         story.append(Paragraph("Ключевые темы", self._styles["h1"]))
         non_noise = [t for t in self._ctx.topics if not t.is_noise]
         if not non_noise:
-            story.append(
-                Paragraph("Темы не выявлены.", self._styles["body"])
-            )
+            story.append(Paragraph("Темы не выявлены.", self._styles["body"]))
             return
         png = render_topics_hbar(self._ctx.topics)
         story.append(Image(io.BytesIO(png), width=160 * mm, height=110 * mm))
@@ -260,11 +250,11 @@ class PDFReportGenerator:
                 )
             )
             if topic.quotes:
-                story.append(
-                    Paragraph("<b>Репрезентативные цитаты:</b>", self._styles["body"])
-                )
+                story.append(Paragraph("<b>Репрезентативные цитаты:</b>", self._styles["body"]))
                 for pseudonym, quote in topic.quotes:
-                    safe_quote = quote.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    safe_quote = (
+                        quote.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    )
                     story.append(
                         Paragraph(
                             f"«{safe_quote}» — <b>{pseudonym}</b>",
@@ -299,7 +289,11 @@ class PDFReportGenerator:
                 story.append(Spacer(1, 3 * mm))
                 continue
             for ans in session_answers:
-                q_safe = ans.question_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                q_safe = (
+                    ans.question_text.replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;")
+                )
                 a_safe = ans.text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                 sentiment_suffix = ""
                 if ans.sentiment_label is not None:
@@ -332,7 +326,12 @@ class PDFReportGenerator:
             ("FONTSIZE", (0, 0), (-1, -1), 10),
             ("BOX", (0, 0), (-1, -1), 0.5, colors.grey),
             ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
-            ("ROWBACKGROUNDS", (0, 1 if header_row else 0), (-1, -1), [colors.whitesmoke, colors.white]),
+            (
+                "ROWBACKGROUNDS",
+                (0, 1 if header_row else 0),
+                (-1, -1),
+                [colors.whitesmoke, colors.white],
+            ),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ("LEFTPADDING", (0, 0), (-1, -1), 6),
             ("RIGHTPADDING", (0, 0), (-1, -1), 6),

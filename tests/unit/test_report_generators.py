@@ -136,9 +136,7 @@ class TestXLSXReportGenerator:
         wb = load_workbook(io.BytesIO(blob))
         assert set(wb.sheetnames) == {"Транскрипты", "Тональность", "Темы"}
 
-    def test_xlsx_transcripts_contain_pseudonym(
-        self, context: CampaignReportContext
-    ) -> None:
+    def test_xlsx_transcripts_contain_pseudonym(self, context: CampaignReportContext) -> None:
         from openpyxl import load_workbook
 
         blob = XLSXReportGenerator(context).render()
