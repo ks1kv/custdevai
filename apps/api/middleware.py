@@ -71,5 +71,17 @@ def register_middleware(app: FastAPI, settings: Settings) -> None:
             TrustedHostMiddleware,
             allowed_hosts=["*"],  # реальный whitelist хостов задаётся за прокси
         )
+    # CORS — для React SPA (Phase 4). allow_credentials=True нужно для
+    # передачи httpOnly cookies между origin SPA и API.
+    if settings.cors_allow_origins:
+        from starlette.middleware.cors import CORSMiddleware
+
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_allow_origins,
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "PATCH", "DELETE", "PUT", "OPTIONS"],
+            allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+        )
     app.add_middleware(RequireHTTPSMiddleware, enabled=settings.is_production)
     app.add_middleware(RequestLoggingMiddleware)

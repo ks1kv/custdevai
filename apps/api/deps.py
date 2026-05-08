@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import Annotated
 
-from fastapi import Depends, Header, Request
+from fastapi import Cookie, Depends, Header, Request
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -63,9 +63,10 @@ RefreshStoreDep = Annotated[RefreshTokenStore, Depends(get_refresh_store)]
 BruteForceDep = Annotated[BruteForceGuard, Depends(get_brute_force_guard)]
 
 
-def _extract_bearer_token(authorization: str | None) -> str:
+def _extract_bearer_token(authorization: str | None) -> str | None:
+    """Возвращает токен из 'Bearer <token>' или None если заголовок пуст/не bearer."""
     if not authorization or not authorization.lower().startswith("bearer "):
-        raise AuthenticationFailed("Требуется заголовок Authorization: Bearer <token>.")
+        return None
     return authorization.split(None, 1)[1]
 
 
@@ -73,9 +74,16 @@ async def get_current_user(
     settings: SettingsDep,
     revoked: RevocationDep,
     authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+    access_cookie: Annotated[
+        str | None, Cookie(alias="access_token")
+    ] = None,
 ) -> CurrentUser:
-    """Декодировать access-токен и проверить, что он не отозван."""
-    token = _extract_bearer_token(authorization)
+    """Декодировать access-токен из заголовка Authorization или cookie (SPA)."""
+    token = _extract_bearer_token(authorization) or access_cookie
+    if not token:
+        raise AuthenticationFailed(
+            "Требуется access-токен (заголовок Authorization или cookie)."
+        )
     payload: TokenPayload = decode_token(token, settings=settings)
     if payload.type is not TokenType.ACCESS:
         raise AuthenticationFailed("Ожидался access-токен.")

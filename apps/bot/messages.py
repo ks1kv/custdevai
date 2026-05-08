@@ -75,5 +75,5 @@ RESEARCHER_NOTIFY_ALL_SESSIONS_COMPLETED = (
 RESEARCHER_NOTIFY_ANALYSIS_READY = (
     "📈 ML-анализ кампании «{campaign_title}» (id={campaign_id}) завершён.\n"
     "Найдено тем: {topics_count}, тональный анализ обработал {sentiment_inserted} ответов.\n"
-    "Подробности — в веб-панели после реализации Phase 4."
+    "Подробности и скачивание отчёта: {campaign_url}"
 )
