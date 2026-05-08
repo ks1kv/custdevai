@@ -7,8 +7,16 @@ from fastapi import APIRouter, Depends, Request
 from apps.api.auth.email import EmailNotifier, LoggingEmailNotifier
 from apps.api.auth.rbac import Role
 from apps.api.db.models import User
-from apps.api.deps import CurrentUser, DBSession, SettingsDep, get_client_ip, require_roles
+from apps.api.deps import (
+    CurrentUser,
+    CurrentUserDep,
+    DBSession,
+    SettingsDep,
+    get_client_ip,
+    require_roles,
+)
 from apps.api.schemas.user import (
+    MyProfileUpdate,
     PasswordResetResponse,
     UserCreate,
     UserOut,
@@ -42,8 +50,59 @@ def _to_out(user: User) -> UserOut:
         full_name=user.full_name,
         is_active=user.is_active,
         must_change_password=user.must_change_password,
+        researcher_telegram_chat_id=user.researcher_telegram_chat_id,
         roles=[r.name for r in (user.roles or [])],
     )
+
+
+@router.get(
+    "/me",
+    response_model=UserOut,
+    summary="Профиль текущего пользователя",
+)
+async def get_me(
+    session: DBSession,
+    actor: CurrentUserDep,
+) -> UserOut:
+    from apps.api.db.repositories.users import UserRepository
+
+    repo = UserRepository(session)
+    user = await repo.get_by_id(actor.id)
+    if user is None:
+        from apps.api.errors import NotFound
+
+        raise NotFound("Пользователь не найден.")
+    await session.refresh(user, attribute_names=["roles"])
+    return _to_out(user)
+
+
+@router.patch(
+    "/me",
+    response_model=UserOut,
+    summary="Обновить свой профиль (full_name, telegram chat_id)",
+)
+async def update_me(
+    payload: MyProfileUpdate,
+    session: DBSession,
+    actor: CurrentUserDep,
+) -> UserOut:
+    """FR-BOT-09 закрытие: исследователь регистрирует свой telegram chat_id
+    через self-update; после этого второй push после ML-анализа реально
+    доставляется."""
+    from apps.api.db.repositories.users import UserRepository
+    from apps.api.errors import NotFound
+
+    repo = UserRepository(session)
+    user = await repo.get_by_id(actor.id)
+    if user is None:
+        raise NotFound("Пользователь не найден.")
+    if payload.full_name is not None:
+        user.full_name = payload.full_name
+    if payload.researcher_telegram_chat_id is not None:
+        user.researcher_telegram_chat_id = payload.researcher_telegram_chat_id
+    await session.commit()
+    await session.refresh(user, attribute_names=["roles"])
+    return _to_out(user)
 
 
 @router.post("", response_model=UserOut, summary="Создать пользователя")

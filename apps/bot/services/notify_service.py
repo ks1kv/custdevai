@@ -107,6 +107,13 @@ async def notify_researcher_analysis_ready(
     notify_token = settings.telegram_notify_bot_token or settings.telegram_bot_token
     if not notify_token:
         return
+    # FR-BOT-09 закрытие: ссылка на страницу кампании в веб-панели Phase 4.
+    # web_base_url настраивается в Settings (default http://localhost:5173 в dev).
+    campaign_url = (
+        f"{settings.web_base_url.rstrip('/')}/campaigns/{campaign.id}"
+        if settings.web_base_url
+        else ""
+    )
     notify_bot = Bot(notify_token)
     try:
         await notify_bot.send_message(
@@ -116,6 +123,7 @@ async def notify_researcher_analysis_ready(
                 campaign_id=campaign.id,
                 topics_count=topics_count,
                 sentiment_inserted=sentiment_inserted,
+                campaign_url=campaign_url,
             ),
         )
     except TelegramAPIError as exc:

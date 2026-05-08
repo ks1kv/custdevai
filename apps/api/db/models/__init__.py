@@ -14,6 +14,7 @@ from apps.api.db.models.analysis import (
 from apps.api.db.models.audit import AuditAction, AuditLog
 from apps.api.db.models.campaign import Campaign, CampaignAnalysisStatus, CampaignStatus
 from apps.api.db.models.consent import Consent
+from apps.api.db.models.report import Report, ReportFormat
 from apps.api.db.models.script import Question, Script
 from apps.api.db.models.session import Answer, InterviewSession, SessionStatus
 from apps.api.db.models.user import Role, User, UserRole
@@ -29,6 +30,8 @@ __all__ = [
     "Consent",
     "InterviewSession",
     "Question",
+    "Report",
+    "ReportFormat",
     "Role",
     "Script",
     "SentimentLabel",

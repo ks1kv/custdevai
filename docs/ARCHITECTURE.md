@@ -113,3 +113,85 @@
 | RuBERT, BERTopic, Celery-задачи | Phase 3 |
 | PDF/XLSX отчёты, React SPA | Phase 4 |
 | FR-AUTH-06 SMTP-реализация, FR-DB-07 безвозвратное удаление, NFR-REL-03 резервы, нагрузочное тестирование | Phase 5 |
+
+---
+
+## 13. Phase 4: Reports + Web admin (добавлено в Phase 4)
+
+### 13.1. Хранилище отчётов: StorageBackend(ABC)
+
+`apps/api/reports/storage.py` определяет абстрактный контракт:
+
+```python
+class StorageBackend(abc.ABC):
+    async def put(self, key, data, *, content_type) -> StoragePutResult
+    async def get(self, key) -> StorageObject
+    async def delete(self, key) -> None
+```
+
+Phase 4 — единственная реализация `LocalFileSystemBackend(base_dir)`. Атомарная запись через `tmp + os.replace`, защита от path traversal через `resolve()`-проверку, blocking I/O вынесен в `asyncio.to_thread`. Phase 5 добавит `S3StorageBackend(boto3)` поверх Selectel Object Storage без изменений `ReportService` и генераторов (NFR-MNT-03).
+
+Том `reports_storage:/var/lib/custdevai/reports` смонтирован в api-контейнере. Cleanup-sweeper для устаревших файлов — Phase 5.
+
+### 13.2. Псевдонимизация R-NNNN (FR-DB-03, FR-RPT-05)
+
+`apps/api/reports/pseudonyms.py:session_to_pseudonym(session_id)` возвращает `f"R-{session_id % 10000:04d}"`. Свойства:
+
+- Внутри одной кампании коллизий нет (session.id уникален).
+- Между разными кампаниями возможна коллизия при > 10 000 сессий — для MVP допустимо.
+- Telegram ID никогда не участвует в формуле (FR-BOT-10) — только session.id.
+
+Phase 5 при росте аудитории > 10 000 — миграция на `interview_sessions.pseudonym_ordinal SMALLINT` с UNIQUE(campaign_id, ordinal).
+
+### 13.3. Pipeline генерации отчёта
+
+```
+ReportService.generate(campaign_id, fmt, actor_id, owner_id):
+  1. RBAC: Researcher свои, Admin все.
+  2. Проверка campaign.analysis_status == COMPLETED → иначе 409 RFC 7807.
+  3. load_campaign_report_context(db, campaign_id, generated_at)
+       → CampaignReportContext (frozen dataclass).
+  4. CPU-bound rendering в loop.run_in_executor(None, _render_sync, ctx)
+       — PDFReportGenerator или XLSXReportGenerator.
+  5. storage.put(key=f"campaigns/{id}/{ts}-report.{ext}", data, content_type)
+       → StoragePutResult(file_path, file_size, sha256).
+  6. ReportRepository.add(Report(...)) → INSERT.
+  7. Возврат Report ORM.
+```
+
+Все генераторы получают только `CampaignReportContext` — никакого I/O в render-коде, что даёт детерминизм и упрощает тестирование.
+
+### 13.4. Faithfulness отчётов (NFR-SEC-09, §1.4.6)
+
+Отчёт строго экстрактивный: каждая аналитическая фраза в PDF/XLSX — это либо агрегат из БД (количество, проценты), либо прямая цитата из транскрипта с псевдонимом R-NNNN. **Никакого LLM.** `representative_quote` для каждой темы рассчитан в Phase 3 через `select_representative_indices()` (top-3 ближайших к centroid эмбеддингов BERTopic).
+
+### 13.5. Шрифты для кириллицы
+
+DejaVu Sans Regular + Bold TTF (~1.4 МБ) bundled в `apps/api/reports/fonts/`. ReportLab регистрирует через `pdfmetrics.registerFont(TTFont(...))`. Matplotlib подключает через `font_manager.fontManager.addfont()`. Это даёт воспроизводимость вне зависимости от ОС-уровня (нет apt-зависимостей).
+
+### 13.6. Аутентификация SPA: httpOnly cookies
+
+В Phase 1 JWT передавался через `Authorization: Bearer`. Phase 4 расширяет — SPA опирается на httpOnly cookies, выставленные API:
+
+- `POST /api/v1/auth/login?set_cookie=true` — JSON с TokenPair + Set-Cookie:
+  - `access_token` (httpOnly, Secure prod, SameSite=Strict, Path=/api, Max-Age=900);
+  - `refresh_token` (httpOnly, Secure prod, SameSite=Strict, Path=/api/v1/auth, Max-Age=604800).
+- `POST /auth/refresh` читает refresh из тела ИЛИ cookie.
+- `POST /auth/logout` чистит обе cookie.
+- `deps.get_current_user` поддерживает оба источника.
+
+`CORSMiddleware(allow_credentials=True, allow_origins=settings.cors_allow_origins)` — обязательно для cookies между origin'ами (SPA :5173 ↔ API :8000 в dev).
+
+### 13.7. React SPA stack
+
+| Решение | Обоснование |
+|---|---|
+| React 18 + TS 5 + Vite | Стандарт стартовых SPA в 2026; Vite быстрее CRA. |
+| TanStack Query v5 | Server-state кэш + refetchInterval для FR-WEB-04. |
+| React Router v6 | Маршрутизация с вложенными layout-роутами. |
+| react-hook-form + zod | Validation в формах сценария/кампании/настроек. |
+| Recharts | Декларативные SVG-графики; на Phase 4 заглушки в CampaignDetailPage. |
+| Минимальный shadcn-style UI | Свои Button/Card/Input/Textarea/Spinner вместо полной библиотеки — даёт ~10 КБ компонентов. |
+| Manual API types | По решению пользователя без кодогенератора — `apps/web/src/api/types.ts` копируется вручную из openapi.json. |
+
+Все строки UI в `apps/web/src/lib/locales/ru.ts` (NFR-OPS-06).

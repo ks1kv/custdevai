@@ -63,6 +63,14 @@ class Settings(BaseSettings):
     telegram_webhook_secret: str = ""
     telegram_notify_bot_token: str = ""
 
+    # --- Reports + Web SPA (Phase 4, FR-RPT-08, FR-WEB-*) -------------------
+    reports_storage_dir: str = "/var/lib/custdevai/reports"
+    cookie_secure: bool | None = None  # None → derive from is_production
+    cookie_samesite: str = "strict"  # "strict" | "lax" | "none"
+    cors_allow_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
+    spa_dist_dir: str = ""  # Phase 5: путь к собранному dist/; в dev пуст
+    web_base_url: str = "http://localhost:5173"  # для построения URL отчётов в push
+
     # --- Pagination (NFR-PRF-03) --------------------------------------------
     default_page_size: int = Field(default=50, gt=0)
     max_page_size: int = Field(default=100, gt=0)
@@ -120,6 +128,14 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def effective_cookie_secure(self) -> bool:
+        """В production cookie всегда Secure; в dev — по флагу или False."""
+        if self.cookie_secure is not None:
+            return self.cookie_secure
+        return self.is_production
 
 
 @lru_cache(maxsize=1)

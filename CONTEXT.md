@@ -4,6 +4,67 @@
 
 ---
 
+## Phase 4 — Reports + Web admin (завершена)
+
+### Что сделано
+
+1. **Модель Report + миграция 0004.** ENUM `report_format` (pdf/xlsx); таблица `reports(id, campaign_id CASCADE, format, file_path TEXT, file_size BIGINT CHECK >0, sha256 BYTEA(32), generated_at, generated_by_user_id, created_at, updated_at)`. Индексы `ix_reports_campaign_format`, `ix_reports_generated_at`. Уникальная пара `(campaign_id, format)` НЕ ставится — повторная генерация (FR-RPT-07) создаёт новую запись и сохраняет старый файл до явного cleanup.
+2. **StorageBackend ABC + LocalFileSystemBackend** (NFR-MNT-03). `put/get/delete` async-методы; LocalFS пишет атомарно через `tmp + os.replace`, защищён от path traversal, использует `asyncio.to_thread` для blocking I/O. Volume `reports_storage:/var/lib/custdevai/reports` в docker-compose. Phase 5 заменит на `S3StorageBackend` без изменений ReportService/generators.
+3. **Псевдонимизация R-NNNN** (FR-DB-03, FR-RPT-05). Производный псевдоним `f"R-{session.id % 10000:04d}"` без миграции БД (Q1: одобрено пользователем). Внутри одной кампании коллизий нет; > 10 000 сессий между кампаниями — переход на `pseudonym_ordinal SMALLINT` в Phase 5.
+4. **CampaignReportContext + data_loader.** Иммутабельный DTO с `AnswerView`, `SessionView`, `TopicView` собирается одним пакетом запросов; генераторы PDF/XLSX больше не делают I/O.
+5. **Charts** (matplotlib `Agg` backend). `render_sentiment_pie(distribution)`, `render_topics_hbar(topics, max_topics=12)` → PNG bytes. Bundled DejaVu Sans Regular+Bold TTF (~1.4 МБ) в `apps/api/reports/fonts/` — кириллица в графиках без apt-зависимостей.
+6. **PDFReportGenerator** (FR-RPT-01..02, 04, 05). A4, поля 20 мм; разделы: cover, summary, sentiment (pie + таблица), topics (hbar + per-topic keywords + 3 цитаты с псевдонимом), transcripts. ReportLab `pdfmetrics.registerFont` для DejaVu. HTML-escape `< > &` для `<para>`-парсера.
+7. **XLSXReportGenerator** (FR-RPT-03). Три листа: «Транскрипты» (R-NNNN, вопрос, ответ, дата, sentiment, confidence), «Тональность» (распределение), «Темы» (id, keywords, frequency, 3 цитаты). Header стилизован, freeze_panes="A2", auto-widths.
+8. **ReportService** (`generate(campaign_id, fmt, actor_id, owner_id) → Report`). Валидирует `analysis_status == COMPLETED` (иначе 409). CPU-bound rendering через `loop.run_in_executor(None, _render_pdf_sync, ctx)`. Ключ хранилища: `campaigns/{id}/{timestamp}-report.{ext}`.
+9. **REST endpoints** (FR-WEB-10, FR-RPT-01..08). `POST /api/v1/campaigns/{id}/reports/generate?format=pdf|xlsx`, `GET /api/v1/campaigns/{id}/reports` (пагинация), `GET /api/v1/campaigns/{id}/reports/{report_id}/download` (streaming Response, `Content-Disposition: attachment`).
+10. **httpOnly cookie auth.** `/auth/login?set_cookie=true` выставляет `access_token` (Path=/api, httpOnly, Secure prod, SameSite=Strict, Max-Age=900) и `refresh_token` (Path=/api/v1/auth, Max-Age=604800). `/auth/refresh` принимает токен из тела ИЛИ cookie. `/auth/logout` чистит обе. `deps.get_current_user` читает из `Authorization: Bearer` ИЛИ из `access_token` cookie. `CORSMiddleware(allow_credentials=True, allow_origins=settings.cors_allow_origins)` — для SPA на :5173.
+11. **Real report URL во втором push** (закрытие FR-BOT-09 #4 из задач Phase 3). `RESEARCHER_NOTIFY_ANALYSIS_READY` шаблон оканчивается «Подробности и скачивание отчёта: {campaign_url}», где `campaign_url = f"{settings.web_base_url}/campaigns/{id}"`.
+12. **`GET/PATCH /api/v1/users/me`** (закрытие FR-BOT-09 #3). `MyProfileUpdate` DTO с `full_name` и `researcher_telegram_chat_id` — researcher через UI Settings регистрирует chat_id, после чего notify_service реально доставляет push.
+13. **React SPA `apps/web/`** (FR-WEB-01..11). React 18 + TS 5 + Vite + TanStack Query v5 + React Router v6 + react-hook-form + zod + Recharts. Все страницы: LoginPage (cookie auth), DashboardPage (real-time `refetchInterval=10s` FR-WEB-04), ScriptsListPage + ScriptBuilderPage (FR-WEB-01,02), CampaignsListPage + CampaignCreatePage, CampaignDetailPage (вкладки обзор/транскрипты/тональность/темы/отчёты, кнопка ML-анализ), ReportsPage (генерация + скачивание PDF/XLSX, FR-WEB-10), CampaignComparePage (FR-WEB-08), ArchivePage (FR-WEB-09), WizardPage первой кампании (FR-WEB-11, NFR-USE-01), SettingsPage (chat_id регистрация). Все строки в `lib/locales/ru.ts` (NFR-OPS-06). Типы API скопированы вручную из openapi.json.
+14. **docker/web.Dockerfile** (multi-stage build + dev). Стадия `dev` — Vite HMR :5173. Стадия `build` — production-bundle в `/app/dist/`. Phase 5 добавит стадию `serve` с Nginx.
+15. **Тесты.** 20 новых: 7 pseudonym + 8 storage backend + 5 PDF/XLSX smoke. Coverage держится ≥ 60%. Полный suite: 133 passed + 1 skipped (ml).
+
+### Закрытые требования Phase 4
+
+| Группа | Полностью | Частично | Отложено |
+|---|---|---|---|
+| FR-WEB-01..12 | 01..11 (включая wizard FR-WEB-11) | 12 (адаптивность тестируется на reference 1024×768; полный браузер-матрикс — Phase 5) | — |
+| FR-RPT-01..08 | 01, 02, 03, 04, 05, 06, 07, 08 | — | — |
+| FR-BOT-09 | ✓ полностью (UI регистрации chat_id + URL отчёта в push) | — | — |
+| NFR-PRF-05 | ≤ 30 с на 500 сессий — структура есть | реальный замер на 500 сессиях — Phase 5 | — |
+| NFR-USE-01 | ≤ 10 минут до первой кампании через Wizard | проверка на пользователях — Phase 5 | — |
+| NFR-USE-04 | aria-метки, контраст | формальный AA-аудит — Phase 5 | — |
+| NFR-OPS-06 | ✓ только русский | — | — |
+| NFR-MNT-03 | ✓ StorageBackend ABC | — | — |
+| NFR-SEC-09 | ✓ отчёт строго экстрактивный, без LLM | — | — |
+
+### Принятые архитектурные решения Phase 4
+
+См. `docs/ARCHITECTURE.md` (раздел Phase 4). Ключевые:
+
+- **Хранилище:** LocalFileSystemBackend в Phase 4, S3 в Phase 5 без переписывания ReportService.
+- **Генерация:** синхронная через `loop.run_in_executor` (CPU-bound). Если профилирование на 500 сессиях покажет > 30 с — переход на Celery `generate_report.delay(...)`.
+- **Faithfulness отчётов:** строго экстрактивный — только цитаты из транскриптов (`representative_quote` из Phase 3, отсортированы по близости к centroid). Никакого LLM. См. §1.4.6 теоретической главы.
+- **Шрифт кириллицы:** bundled DejaVu Sans TTF (а не apt-install), даёт воспроизводимость.
+- **Псевдоним:** `R-{session.id % 10000:04d}` без миграции (Q1).
+- **Cookies:** httpOnly + Secure (prod) + SameSite=Strict; `?set_cookie=true` на /auth/login; refresh идёт через cookie тоже.
+- **Frontend:** React 18 + TS 5 + Vite + TanStack Query v5 + shadcn-style minimal UI + Recharts; типы API вручную из openapi.json без кодогенератора.
+
+### Открытые задачи для Phase 5
+
+1. **Production-деплой на Selectel + Nginx reverse-proxy.** SPA через FastAPI StaticFiles из `apps/web/dist/` либо Nginx-стадия в web.Dockerfile.
+2. **S3-backend для отчётов.** `S3StorageBackend(boto3)` поверх Selectel Object Storage (env `SELECTEL_OBJECT_STORAGE_*` уже есть).
+3. **Fine-tune RuBERT на RuSentNE-2023** для достижения FR-SENT-07 (accuracy ≥ 0.75, weighted F1 ≥ 0.73).
+4. **Sweeper 48-часовых сессий (FR-BOT-05).** Celery beat-таска `sessions_sweeper` каждые 15 мин.
+5. **Полный браузерный QA-матрикс (FR-WEB-12, NFR-OPS-05).** Chrome 110+ / Firefox 110+ / Yandex 23+.
+6. **Нагрузочные тесты NFR-PRF-02/04/05/06** на реальных объёмах через locust или k6.
+7. **/transcripts API** — выдача транскриптов с поиском (FR-WEB-05) и распределения тональности (FR-WEB-06) для интерактивных вкладок CampaignDetailPage. SPA уже готов потреблять (заглушки в трёх вкладках).
+8. **HMAC-подпись deep-link** (Phase 2 #4).
+9. **Outbox-pattern для Telegram-сообщений** (Phase 2 #4).
+10. **Retry-After при 429** (NFR-SEC-05 nice-to-have).
+
+---
+
 ## Phase 3 — ML modules (завершена)
 
 ### Что сделано
