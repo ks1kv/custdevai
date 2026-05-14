@@ -28,6 +28,8 @@ import {
   AnalysisStatusBadge,
   CampaignStatusBadge,
 } from "@/components/StatusBadge";
+import { SentimentTab } from "@/components/SentimentTab";
+import { TranscriptsTab } from "@/components/TranscriptsTab";
 import { t } from "@/lib/locales/ru";
 
 type TabKey = "overview" | "transcripts" | "sentiment" | "topics" | "reports";
@@ -131,24 +133,9 @@ export function CampaignDetailPage() {
         </Card>
       )}
 
-      {tab === "transcripts" && (
-        <Card>
-          <p className="muted">
-            Просмотр транскриптов будет доступен после публикации эндпоинта
-            /transcripts (Phase 5). Респонденты обозначены псевдонимами R-NNNN
-            согласно FR-DB-03.
-          </p>
-        </Card>
-      )}
+      {tab === "transcripts" && <TranscriptsTab campaignId={campaignId} />}
 
-      {tab === "sentiment" && (
-        <Card>
-          <p className="muted">
-            Распределение тональности доступно после завершения ML-анализа.
-            Визуализация через PDF/XLSX-отчёт в разделе «Отчёты».
-          </p>
-        </Card>
-      )}
+      {tab === "sentiment" && <SentimentTab campaignId={campaignId} />}
 
       {tab === "topics" && (
         <Card>

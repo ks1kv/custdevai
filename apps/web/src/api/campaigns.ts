@@ -7,6 +7,8 @@ import type {
   Page,
   ReportFormat,
   ReportOut,
+  SentimentLabel,
+  TranscriptSession,
 } from "./types";
 
 export function listCampaigns(params: {
@@ -66,5 +68,20 @@ export function generateReport(campaignId: number, format: ReportFormat) {
 export function downloadReport(campaignId: number, reportId: number) {
   return apiBlob(
     `/api/v1/campaigns/${campaignId}/reports/${reportId}/download`,
+  );
+}
+
+export function listTranscripts(
+  campaignId: number,
+  params: {
+    q?: string;
+    sentiment?: SentimentLabel;
+    limit?: number;
+    offset?: number;
+  } = {},
+) {
+  return apiRequest<Page<TranscriptSession>>(
+    `/api/v1/campaigns/${campaignId}/transcripts`,
+    { query: params },
   );
 }

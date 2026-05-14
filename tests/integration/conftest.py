@@ -67,6 +67,9 @@ async def test_engine():
     @event.listens_for(engine.sync_engine, "connect")
     def _register_char_length(dbapi_connection, _record):
         dbapi_connection.create_function("char_length", 1, lambda s: len(s) if s else 0)
+        # SQLite-вшитая lower() обрабатывает только ASCII; для кириллицы нужно
+        # python-aware lower (для FR-WEB-05 search по транскриптам).
+        dbapi_connection.create_function("lower", 1, lambda s: s.lower() if s else s)
 
     # Создаём только подмножество таблиц, не зависящих от Postgres-only типов.
     # Полная схема проверяется отдельно интеграционным test_migrations.
