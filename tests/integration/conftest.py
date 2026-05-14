@@ -28,13 +28,27 @@ def _patch_bigint_for_sqlite() -> None:
     Подменяем компиляцию BIGINT в "INTEGER" для sqlite, чтобы Base.metadata
     с BigInteger PK прошёл create_all. На Postgres продолжает использоваться
     BIGINT — это не задевает основную схему.
+
+    Также подменяем PG-only ARRAY(Text) на TEXT для SQLite — содержимое
+    в тестах не парсится, но таблицы topics + session_topics создаются,
+    что нужно для FR-DB-07 тестов (DELETE session_topics).
     """
     from sqlalchemy import BigInteger
+    from sqlalchemy.dialects.sqlite.base import SQLiteTypeCompiler
     from sqlalchemy.ext.compiler import compiles
 
     @compiles(BigInteger, "sqlite")
     def _bigint_to_integer(element, compiler, **kw):  # type: ignore[no-untyped-def]
         return "INTEGER"
+
+    # SQLiteTypeCompiler не знает PG-only ARRAY — научим его рендерить TEXT.
+    # Содержимое keywords в SQLite-тестах не разбирается; нужно лишь чтобы
+    # таблицы topics / session_topics создались (FR-DB-07).
+    def _visit_array(self, type_, **kw):  # type: ignore[no-untyped-def]
+        del type_, kw
+        return "TEXT"
+
+    SQLiteTypeCompiler.visit_ARRAY = _visit_array  # type: ignore[attr-defined]
 
 
 _patch_bigint_for_sqlite()
@@ -72,20 +86,12 @@ async def test_engine():
     )
 
     async with engine.begin() as conn:
-        # На Phase 3 sentiment_results включён в схему. topics + session_topics
-        # используют PG-only ARRAY(Text), на SQLite не поддерживается;
-        # пропускаем — Phase 3 ML-тесты используют FakeModeler без INSERT
-        # в topics (orchestration уровень).
-        skip = {
-            "topics",
-            "session_topics",
-        }
+        # На Phase 5 ARRAY(Text) для topics компилируется через @compiles
+        # как TEXT, что даёт SQLite корректную таблицу. Содержимое keywords
+        # в тестах не разбирается, но FK на topics доступен для session_topics
+        # — это нужно FR-DB-07 (тестам каскадного удаления session_topics).
         meta = Base.metadata
-        await conn.run_sync(
-            lambda c: meta.create_all(
-                bind=c, tables=[t for t in meta.sorted_tables if t.name not in skip]
-            )
-        )
+        await conn.run_sync(lambda c: meta.create_all(bind=c))
     try:
         yield engine
     finally:

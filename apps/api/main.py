@@ -20,7 +20,7 @@ from apps.api.config import Settings, get_settings
 from apps.api.deps import CurrentUser, require_roles
 from apps.api.errors import register_error_handlers
 from apps.api.middleware import register_middleware
-from apps.api.routers import campaigns, health, reports, scripts, users, webhook
+from apps.api.routers import admin, campaigns, health, reports, scripts, users, webhook
 
 API_V1_PREFIX = "/api/v1"
 
@@ -88,6 +88,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api_v1.include_router(scripts.router)
     api_v1.include_router(campaigns.router)
     api_v1.include_router(reports.router)
+    api_v1.include_router(admin.router)
     api_v1.include_router(webhook.router)
     app.include_router(api_v1)
 
