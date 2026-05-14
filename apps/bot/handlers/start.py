@@ -9,6 +9,7 @@ from aiogram.filters import CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
+from apps.api.config import get_settings
 from apps.bot import messages
 from apps.bot.db import open_session
 from apps.bot.deeplink import InvalidDeepLink, parse_campaign_id
@@ -37,8 +38,11 @@ async def handle_start(message: Message, command: CommandObject, state: FSMConte
     if message.from_user is None:
         return  # service-сообщение без пользователя
 
+    # SHOULD-9 Phase 5: HMAC-подписанные deep-link. Старый формат `c<id>`
+    # принимается с DeprecationWarning в логе (см. deeplink._LEGACY_RE).
+    settings = get_settings()
     try:
-        campaign_id = parse_campaign_id(command.args)
+        campaign_id = parse_campaign_id(command.args, master_salt=settings.pseudonym_master_salt)
     except InvalidDeepLink:
         await message.answer(messages.INVALID_DEEPLINK)
         return

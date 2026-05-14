@@ -20,7 +20,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import Update
-from fastapi import APIRouter, Header, Request, status
+from fastapi import APIRouter, Header, status
 
 from apps.api.config import Settings
 from apps.api.deps import SettingsDep
@@ -53,22 +53,22 @@ def _get_bot_and_dispatcher(settings: Settings) -> tuple[Bot, Dispatcher]:
     "/webhook",
     status_code=status.HTTP_200_OK,
     summary="Telegram Bot API webhook",
+    # Тяжёлая Update-схема aiogram не попадает в публичный OpenAPI,
+    # чтобы не раздувать /api/openapi.json (sub-app pattern, SHOULD-9
+    # Phase 5). Бот всё равно вызывается напрямую Telegram API, не SPA.
+    include_in_schema=False,
 )
 async def telegram_webhook(
-    request: Request,
+    update: Update,
     settings: SettingsDep,
     x_telegram_bot_api_secret_token: Annotated[
         str | None, Header(alias="X-Telegram-Bot-Api-Secret-Token")
     ] = None,
 ) -> dict[str, str]:
-    """Принимает raw JSON; парсит Update внутри, чтобы тяжёлая Update-схема
-    aiogram не попадала в OpenAPI и не ломала get_openapi()."""
+    """Принимает типизированный Update; валидирует секрет и форвардит в dispatcher."""
     expected = settings.telegram_webhook_secret
     if expected and x_telegram_bot_api_secret_token != expected:
         raise AuthenticationFailed("Невалидный webhook-secret.")
-
-    body = await request.json()
-    update = Update.model_validate(body)
 
     bot, dp = _get_bot_and_dispatcher(settings)
     try:
