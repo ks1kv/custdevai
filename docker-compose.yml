@@ -136,6 +136,7 @@ services:
     volumes:
       - ./apps:/app/apps:ro
       - ml_models_cache:/models
+      - backups_storage:/var/lib/custdevai/backups
     command: ["celery", "-A", "apps.worker.celery_app", "worker", "--loglevel=info", "--concurrency=1"]
     depends_on:
       postgres:
@@ -149,6 +150,35 @@ services:
           memory: 4G
         reservations:
           memory: 2G
+    networks:
+      - backend
+
+  # --------------------------------------------------------------------------
+  # Celery beat — periodic-задачи (Phase 5).
+  # FR-DB-08: ежедневный pg_dump. FR-BOT-05: sweeper зависших сессий.
+  # Отдельный сервис, чтобы не дублировать расписание при scale worker>1.
+  # --------------------------------------------------------------------------
+  worker-beat:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    container_name: custdevai-worker-beat
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-custdev}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-custdevai}
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+    volumes:
+      - ./apps:/app/apps:ro
+      - backups_storage:/var/lib/custdevai/backups
+    command:
+      ["celery", "-A", "apps.worker.celery_app", "beat", "--loglevel=info"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - backend
 
@@ -191,6 +221,10 @@ volumes:
     driver: local
     # Сгенерированные PDF/XLSX-отчёты (FR-RPT-01..08).
     # LocalFileSystemBackend (Phase 4); Phase 5 переедет на S3.
+  backups_storage:
+    driver: local
+    # pg_dump ежедневные копии (FR-DB-08, NFR-REL-03/05/06).
+    # Глубина — BACKUP_RETENTION_COUNT (по умолчанию 7).
   web_node_modules:
     driver: local
     # Анонимный том для node_modules SPA — изолирует от bind-mount исходников.
