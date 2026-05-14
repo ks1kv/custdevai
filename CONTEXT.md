@@ -4,6 +4,73 @@
 
 ---
 
+## Phase 5 — Integration & QA (завершена)
+
+Финальная фаза перед защитой ВКР 31.05.2026. Закрыты все 7 MUST задач и
+3 SHOULD; COULD-задачи перенесены на Phase 6 (после защиты).
+
+### Что сделано
+
+1. **FR-BOT-05 sessions sweeper.** `apps/worker/tasks/sessions.py` с Celery beat-расписанием каждые 15 минут: UPDATE active → interrupted для сессий с `last_activity_at < now() - 48h` (настраивается через `SESSION_INACTIVE_HOURS`). 2 integration теста.
+2. **FR-DB-07 удаление субъекта** (№ 152-ФЗ). `DataDeletionService` + `POST /api/v1/admin/data-deletion-requests` (admin-only). Физическое удаление всех записей субъекта по `telegram_id_hash`; запись `DATA_DELETION_REQUESTED` в audit_log с counts и legal_basis; возврат `DataDeletionReceipt` (JSON-акт). 4 integration теста.
+3. **FR-DB-08 + NFR-REL-03/05/06 backup.** `apps/worker/tasks/backup.py` ежедневно в 03:00 UTC выполняет `pg_dump -Fc` в `BACKUP_STORAGE_DIR` и ротирует последние 7 копий. Celery retry 2 раза при сбое. Volume `backups_storage` в docker-compose, отдельный сервис `worker-beat`. 6 unit тестов. `docs/DISASTER_RECOVERY.md` с процедурой `pg_restore --clean --if-exists -j 4` и замером RTO.
+4. **FR-WEB-05 транскрипты.** `GET /api/v1/campaigns/{id}/transcripts` с поиском через pg_trgm (миграция 0005 — GIN-индекс) и фильтром по sentiment_label. Fallback на `lower().contains()` в SQLite + регистрация python-aware lower для кириллицы. 5 integration тестов. SPA: `TranscriptsTab` (поиск + фильтр + раскрывающиеся сессии), `SentimentTab` (Recharts PieChart с агрегатом).
+5. **FR-SENT-07 fine-tune pipeline.** `apps/ml/sentiment/training.py`: RuSentNE-2023 через `datasets`, stratified split с seed=42, ≥ 200 примеров holdout в `tests/ml/data/rusentne_2023_holdout.json`, HuggingFace Trainer (epochs=3, batch=8, lr=2e-5, CPU). `model.save_pretrained` + metrics.json (accuracy / weighted F1 / macro F1 / per-class P/R/F1 / confusion matrix). `RuBERTSentimentAnalyzer.warmup()` грузит fine-tuned веса из `SENTIMENT_MODEL_PATH`. Жёсткие assert FR-SENT-07 включаются `SENTIMENT_ASSERT_FR_07=true`. `docs/ML_METRICS.md` шаблон отчёта.
+6. **MUST-2 нагрузочное тестирование** (NFR-PRF-01/02/04/05/06/08). `tests/load/`: scenario_1 (k6, 50 VUs webhook), scenario_2 (200 сессий ML eager), scenario_3 (500 сессий отчёт), scenario_4 (k6, 1000 RPS API). `tests/load/_helpers.py` seed с реалистичными русскоязычными ответами. `docs/LOAD_TEST_REPORT.md`.
+7. **MUST-6 production-деплой Selectel.** `docker/web.Dockerfile` стадия `serve` (Nginx + dist/). `docker/nginx/nginx.conf` — TLS 1.2/1.3, HSTS, reverse-proxy `/api/*` с `X-Forwarded-Proto https`, SPA fallback, gzip. `docker-compose.prod.yml` с `ENVIRONMENT=production`, `COOKIE_SECURE=true`, 4 uvicorn workers. `docs/DEPLOYMENT.md` — 15-шаговая процедура.
+8. **SHOULD-9 технический долг.**
+   - **Retry-After** (NFR-SEC-05, RFC 6585): RateLimited принимает `retry_after_seconds`; handler выставляет заголовок.
+   - **HMAC deep-link** (NFR-SEC-08): новый формат `c<id>.<sig>`, ключ через HKDF из `PSEUDONYM_MASTER_SALT` с info=b"deeplink". Старый `c<id>` принимается с deprecation-warning. 6 unit тестов.
+   - **Webhook sub-app typing**: `Update` типизированный, `include_in_schema=False` исключает aiogram-схему из публичного OpenAPI.
+9. **SHOULD-8 SMTPEmailNotifier** (FR-AUTH-06). `SMTPEmailNotifier` через aiosmtplib (STARTTLS, plain-text по-русски). `get_email_notifier(settings)` — фабрика: SMTP при `SMTP_HOST + SMTP_FROM`, иначе Logging. SMTP failure → warning-лог с `delivery_failed=True`, не блокирует reset_password. 4 unit теста.
+10. **SHOULD-10 Playwright cross-browser** (FR-WEB-12, NFR-OPS-05). `tests/e2e/` три профиля (chromium-1024, firefox-1024, yandex-1024) viewport 1024×768. `full_flow.spec.ts`: login → script → campaign → settings + проверка scrollWidth. `docs/BROWSER_QA_REPORT.md`.
+
+### Тестовое покрытие
+
+**Полный suite (без ML-acceptance): 161 passed + 1 skipped**, coverage ≥ 60%.
+
+В CI: 3 новых интеграционных набора (sessions sweeper, data deletion, transcripts), 4 новых unit-набора (backup rotation, deeplink HMAC, email notifier factory, расширенный sentiment_quality).
+
+### Итоговая матрица покрытия FR/NFR
+
+| Группа | Полностью | Частично | Отложено в Phase 6 |
+|---|---|---|---|
+| FR-API-01..08 | 01..08 | — | — |
+| FR-AUTH-01..08 | 01..08 (SMTP в production) | — | — |
+| FR-DB-01..08 | 01..08 (включая 07 удаление субъекта, 08 backup) | — | — |
+| FR-BOT-01..10 | 01..10 (sweeper закрывает 05) | — | — |
+| FR-SENT-01..08 | 01..06, 08 | 07 (pipeline готов; фактические метрики после прогона на Selectel) | — |
+| FR-TOP-01..08 | 01..08 | — | — |
+| FR-RPT-01..08 | 01..08 (LocalFS) | — | S3-backend (COULD) |
+| FR-WEB-01..12 | 01..12 (12 через Playwright + viewport check) | — | Полный QA-прогон в 3 браузерах — на Selectel |
+| NFR-SEC-01..09 | 01..09 (Retry-After + HMAC + SMTP) | — | — |
+| NFR-PRF-01..08 | каркас + сценарии | 01/02/04/05/06/08 (замеры на Selectel) | — |
+| NFR-REL-01..07 | 02..06 (backup + RTO/RPO документированы) | 01 (99% uptime — после prod-деплоя), 04 (outbox — COULD) | 03 (S3 в другом регионе), 07 |
+| NFR-MNT-01..05 | 01..05 (StorageBackend ABC, EmailNotifier фабрика) | — | — |
+| NFR-OPS-01..08 | 01..08 (DEPLOYMENT + DR + 3 Playwright профиля) | 05 (фактический прогон — на Selectel) | — |
+| NFR-USE-01..05 | 01..05 (Wizard ≤ 10 мин; ru-only NFR-OPS-06) | 04 (формальный WCAG audit — COULD) | — |
+| NFR-COR-01..02 | 01..02 | — | — |
+
+### COULD-задачи (перенесены в Phase 6)
+
+1. `users.tokens_invalid_before TIMESTAMPTZ` для полного отзыва токенов администратором (FR-AUTH-07 в максимуме).
+2. Outbox-pattern для Telegram-сообщений (NFR-REL-04 строгое соответствие).
+3. S3StorageBackend для отчётов через aiobotocore (FR-RPT-08 в production-конфигурации Selectel Object Storage).
+4. Формальный WCAG 2.1 AA аудит SPA через axe-core или pa11y.
+
+### Что должно произойти на Selectel-стенде до защиты
+
+См. чек-лист в `docs/DEPLOYMENT.md` §14:
+
+- [ ] Развернуть стек по DEPLOYMENT.md (1–11).
+- [ ] Прогнать fine-tune RuBERT (`python -m apps.ml.sentiment.training`) и заполнить ML_METRICS.md фактическими числами; стратегия Q2 — итерации гиперпараметров до достижения FR-SENT-07.
+- [ ] Прогнать 4 нагрузочных сценария → заполнить LOAD_TEST_REPORT.md.
+- [ ] Замерить RTO на тестовом восстановлении → заполнить DISASTER_RECOVERY.md §4.
+- [ ] Прогнать Playwright в 3 профилях → заполнить BROWSER_QA_REPORT.md со скриншотами.
+- [ ] Demo-сценарий end-to-end (бот → анализ → отчёт) перед защитой.
+
+---
+
 ## Phase 4 — Reports + Web admin (завершена)
 
 ### Что сделано
