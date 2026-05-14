@@ -1,0 +1,86 @@
+# ============================================================================
+# CustDevAI production overrides (Phase 5)
+# ----------------------------------------------------------------------------
+# Запуск:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Отличия от dev:
+#   - api: ENVIRONMENT=production (включает RequireHTTPSMiddleware), без --reload,
+#         несколько uvicorn workers, без bind-mount исходников.
+#   - web: target=serve (Nginx из stage serve в web.Dockerfile), порты 80/443.
+#   - postgres / redis: без публичных портов; доступны только внутри docker сети.
+#   - reports_storage, backups_storage: монтируются read-write.
+#   - Тома сертификатов TLS пробрасываются с хоста (заранее выпущенные certbot).
+# ============================================================================
+
+services:
+  postgres:
+    # Не публикуем порт наружу в production.
+    ports: !reset []
+
+  redis:
+    ports: !reset []
+
+  api:
+    environment:
+      ENVIRONMENT: production
+      COOKIE_SECURE: "true"
+    # Без bind-mount apps; читаем только из образа.
+    volumes:
+      - reports_storage:/var/lib/custdevai/reports
+    command:
+      [
+        "uvicorn",
+        "apps.api.main:app",
+        "--host", "0.0.0.0",
+        "--port", "8000",
+        "--workers", "4",
+        "--proxy-headers",
+        "--forwarded-allow-ips", "*",
+      ]
+    # Внутренний порт не публикуем — наружу через Nginx (web).
+    ports: !reset []
+
+  bot:
+    environment:
+      ENVIRONMENT: production
+    volumes: !override
+      - /dev/null:/dev/null
+
+  worker:
+    environment:
+      ENVIRONMENT: production
+    volumes: !override
+      - ml_models_cache:/models
+      - backups_storage:/var/lib/custdevai/backups
+      - reports_storage:/var/lib/custdevai/reports
+
+  worker-beat:
+    environment:
+      ENVIRONMENT: production
+    volumes: !override
+      - backups_storage:/var/lib/custdevai/backups
+
+  web:
+    build:
+      target: serve
+    container_name: custdevai-web
+    restart: unless-stopped
+    environment:
+      NGINX_API_UPSTREAM: api:8000
+      NGINX_SERVER_NAME: ${PUBLIC_DOMAIN:?PUBLIC_DOMAIN must be set in .env for production}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # TLS-сертификаты Let's Encrypt с хоста.
+      # Подразумевается: certbot выпустил их в /etc/letsencrypt/live/<domain>/
+      # и они символически связаны с ./docker/nginx/certs/{fullchain,privkey}.pem.
+      - ./docker/nginx/certs:/etc/nginx/certs:ro
+      # Для http-01 ACME-challenge при renew.
+      - ./docker/nginx/certbot-www:/var/www/certbot:ro
+    depends_on:
+      - api
+    networks:
+      - frontend
+      - backend
