@@ -155,6 +155,7 @@ ignore = [
 "apps/bot/main.py" = ["T201"]
 "apps/worker/main.py" = ["T201"]
 "apps/ml/sentiment/training.py" = ["T201"]  # CLI prints metrics JSON
+"tests/load/*.py" = ["T201"]  # CLI prints scenario JSON summary
 
 [tool.ruff.format]
 quote-style = "double"
