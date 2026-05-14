@@ -154,6 +154,7 @@ ignore = [
 "apps/api/cli.py" = ["T201"]  # print() is intentional CLI output
 "apps/bot/main.py" = ["T201"]
 "apps/worker/main.py" = ["T201"]
+"apps/ml/sentiment/training.py" = ["T201"]  # CLI prints metrics JSON
 
 [tool.ruff.format]
 quote-style = "double"
