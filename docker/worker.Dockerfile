@@ -38,12 +38,12 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libpq5 libgomp1 \
+ && apt-get install -y --no-install-recommends libpq5 libgomp1 postgresql-client \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --system --gid 10001 app \
  && useradd --system --uid 10001 --gid app --no-create-home -d /app app \
- && mkdir -p /models \
- && chown -R app:app /models
+ && mkdir -p /models /var/lib/custdevai/backups \
+ && chown -R app:app /models /var/lib/custdevai
 
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin

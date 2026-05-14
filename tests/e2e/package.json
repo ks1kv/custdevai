@@ -1,0 +1,17 @@
+{
+  "name": "custdevai-e2e",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "install-browsers": "playwright install --with-deps",
+    "test": "playwright test",
+    "test:chromium": "playwright test --project=chromium-1024",
+    "test:firefox": "playwright test --project=firefox-1024",
+    "test:yandex": "playwright test --project=yandex-1024",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  }
+}

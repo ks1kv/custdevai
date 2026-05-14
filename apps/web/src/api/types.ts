@@ -124,3 +124,25 @@ export interface Page<T> {
   limit: number;
   offset: number;
 }
+
+export type SentimentLabel = "positive" | "neutral" | "negative" | "low_confidence";
+export type SessionStatus = "active" | "completed" | "interrupted";
+
+export interface TranscriptAnswer {
+  question_id: number;
+  question_order: number;
+  question_text: string;
+  answer_text: string;
+  answered_at: string;
+  sentiment_label: SentimentLabel | null;
+  sentiment_confidence: number | null;
+}
+
+export interface TranscriptSession {
+  session_id: number;
+  pseudonym: string;
+  status: SessionStatus;
+  started_at: string | null;
+  completed_at: string | null;
+  answers: TranscriptAnswer[];
+}

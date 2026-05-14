@@ -94,17 +94,35 @@ class RateLimited(APIError):
     title = "Слишком много запросов"
     type_suffix = "rate-limit"
 
+    def __init__(
+        self,
+        detail: str | None = None,
+        *,
+        retry_after_seconds: int | None = None,
+        errors: list[dict[str, Any]] | None = None,
+    ) -> None:
+        super().__init__(detail, errors=errors)
+        # RFC 6585 §4: при 429 ответе SHOULD выставлять заголовок Retry-After
+        # (NFR-SEC-05). Значение — секунды до следующей попытки.
+        self.retry_after_seconds = retry_after_seconds
 
-def _problem_response(problem: ProblemDetail) -> JSONResponse:
+
+def _problem_response(
+    problem: ProblemDetail, *, extra_headers: dict[str, str] | None = None
+) -> JSONResponse:
     return JSONResponse(
         status_code=problem.status,
         content=problem.model_dump(exclude_none=True),
         media_type=PROBLEM_CONTENT_TYPE,
+        headers=extra_headers,
     )
 
 
 async def _api_error_handler(request: Request, exc: APIError) -> JSONResponse:
-    return _problem_response(exc.to_problem(instance=str(request.url)))
+    headers: dict[str, str] | None = None
+    if isinstance(exc, RateLimited) and exc.retry_after_seconds is not None:
+        headers = {"Retry-After": str(exc.retry_after_seconds)}
+    return _problem_response(exc.to_problem(instance=str(request.url)), extra_headers=headers)
 
 
 async def _http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:

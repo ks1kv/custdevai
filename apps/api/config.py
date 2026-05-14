@@ -98,6 +98,24 @@ class Settings(BaseSettings):
     celery_result_backend: str = ""
     celery_task_always_eager: bool = False  # True в тестах
 
+    # --- Phase 5: backups, sweepers, SMTP, deeplinks ------------------------
+    # FR-DB-08 / NFR-REL-03: ежедневный pg_dump в этот каталог. В docker-compose
+    # смонтирован как volume backups_storage. RPO ≤ 24 ч обеспечивается
+    # ежесуточным расписанием Celery beat.
+    backup_storage_dir: str = "/var/lib/custdevai/backups"
+    backup_retention_count: int = Field(default=7, ge=1, le=90)
+    # FR-BOT-05: sweeper переводит active → interrupted после неактивности.
+    session_inactive_hours: int = Field(default=48, gt=0)
+    # Путь к fine-tuned весам RuBERT (FR-SENT-07). None → pretrained baseline.
+    sentiment_model_path: str | None = None
+    # FR-AUTH-06: SMTP-доставка временного пароля.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_use_tls: bool = True
+
     @field_validator("jwt_algorithm")
     @classmethod
     def _check_algo(cls, v: str) -> str:

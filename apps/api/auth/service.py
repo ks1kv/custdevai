@@ -46,7 +46,11 @@ class AuthService:
 
     async def login(self, *, email: str, password: str, ip: str) -> TokenPair:
         if await self._bf.is_locked(ip):
-            raise RateLimited("Слишком много неудачных попыток входа. Попробуйте через 15 минут.")
+            # Retry-After в секундах из конфигурации (NFR-SEC-05, RFC 6585).
+            raise RateLimited(
+                "Слишком много неудачных попыток входа. Попробуйте через 15 минут.",
+                retry_after_seconds=self._settings.bruteforce_lock_seconds,
+            )
         user = await self._users.get_by_email(email)
         if user is None or not user.is_active:
             await self._record_failed(ip=ip, target_user_id=None)

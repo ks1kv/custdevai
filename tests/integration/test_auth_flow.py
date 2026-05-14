@@ -82,3 +82,6 @@ async def test_lockout_after_5_failed_attempts(client, seeded_admin) -> None:
     )
     assert r.status_code == 429
     assert r.headers["content-type"].startswith("application/problem+json")
+    # RFC 6585 §4: 429 ответ выставляет Retry-After в секундах (NFR-SEC-05).
+    assert "retry-after" in {k.lower() for k in r.headers}
+    assert int(r.headers["retry-after"]) > 0

@@ -1,9 +1,10 @@
 # ============================================================================
 # CustDevAI Web SPA — multi-stage Dockerfile
 # ----------------------------------------------------------------------------
-# Stage `dev` — Vite dev server :5173 c HMR. Используется в docker-compose
-# (target: dev). Стадия `build` собирает production-bundle в /app/dist/ —
-# его подхватит Nginx или FastAPI StaticFiles в Phase 5.
+# Стадии:
+#   build  — компилирует SPA в /app/dist/ (Vite production).
+#   dev    — Vite dev server :5173 с HMR (используется в docker-compose dev).
+#   serve  — Nginx serving production dist + reverse-proxy на API (Phase 5).
 # ============================================================================
 
 # ---------------------------------------------------------------------- build
@@ -25,7 +26,14 @@ EXPOSE 5173
 COPY apps/web/ ./
 CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
 
-# ------------------------------------------------------------- (Phase 5) prod
-# В Phase 5 будет добавлена стадия `serve` с Nginx, копирующая dist/
-# из стадии build. Пока (Phase 4) production-обслуживание SPA лежит
-# на FastAPI StaticFiles в api-контейнере.
+# ---------------------------------------------------------------------- serve
+# Production-стадия: Nginx 1.27-alpine, копирует dist/ из стадии build.
+# nginx.conf проксирует /api/* на upstream api:8000 и обслуживает SPA
+# (try_files index.html fallback для React Router).
+FROM nginx:1.27-alpine AS serve
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY docker/nginx/nginx.conf /etc/nginx/templates/default.conf.template
+# Эти ENV подставляются в nginx.conf через envsubst при старте.
+ENV NGINX_API_UPSTREAM=api:8000
+ENV NGINX_SERVER_NAME=_
+EXPOSE 80 443

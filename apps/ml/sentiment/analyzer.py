@@ -73,18 +73,21 @@ class RuBERTSentimentAnalyzer(SentimentAnalyzer):
 
         set_global_seeds(self._settings.sentiment_random_seed)
         cache_dir = self._settings.ml_model_cache_dir or None
-        self._tokenizer = AutoTokenizer.from_pretrained(
-            self._settings.sentiment_model_name, cache_dir=cache_dir
-        )
+        # FR-SENT-07: если задан SENTIMENT_MODEL_PATH, грузим fine-tuned
+        # веса с локального диска (output apps/ml/sentiment/training).
+        # Иначе — baseline DeepPavlov/rubert-base-cased.
+        model_source = self._settings.sentiment_model_path or self._settings.sentiment_model_name
+        self._tokenizer = AutoTokenizer.from_pretrained(model_source, cache_dir=cache_dir)
         self._model = AutoModelForSequenceClassification.from_pretrained(
-            self._settings.sentiment_model_name, cache_dir=cache_dir
+            model_source, cache_dir=cache_dir
         )
         self._model.eval()
         self._torch = torch
         logger.info(
             "rubert_warmup_complete",
             extra={
-                "model_name": self._settings.sentiment_model_name,
+                "model_source": model_source,
+                "fine_tuned": bool(self._settings.sentiment_model_path),
                 "num_labels": getattr(self._model.config, "num_labels", None),
             },
         )

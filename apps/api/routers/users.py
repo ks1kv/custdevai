@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
-from apps.api.auth.email import EmailNotifier, LoggingEmailNotifier
+from apps.api.auth.email import EmailNotifier
 from apps.api.auth.rbac import Role
 from apps.api.db.models import User
 from apps.api.deps import (
@@ -30,9 +30,13 @@ router = APIRouter(prefix="/users", tags=["users"])
 _admin_only = require_roles(Role.ADMIN)
 
 
-def get_email_notifier() -> EmailNotifier:
-    """Phase 1: всегда LoggingEmailNotifier; в Phase 5 будет SMTP-реализация."""
-    return LoggingEmailNotifier()
+def get_email_notifier(settings: SettingsDep) -> EmailNotifier:
+    """Phase 5: фабрика выбирает SMTPEmailNotifier при наличии SMTP_HOST,
+    иначе LoggingEmailNotifier (dev/tests).
+    """
+    from apps.api.auth.email import get_email_notifier as factory
+
+    return factory(settings)
 
 
 def _service(
