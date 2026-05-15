@@ -5,27 +5,37 @@
 
 ## 0. Что должно быть у тебя до старта
 
-| Артефакт | Откуда |
+| Артефакт | Откуда / факт для текущего деплоя |
 |---|---|
 | Selectel-аккаунт + биллинг | https://my.selectel.ru/ |
-| SSH-ключ для root/admin доступа | пользователь |
-| Публичный домен или *.selcloud.ru поддомен | пользователь |
-| Telegram-бот токен | @BotFather (новый бот или прод-инстанс существующего) |
+| SSH-ключ для root/admin доступа | `~/.ssh/selectel_ed25519` (публичная часть загружена в Selectel) |
+| Публичный IP инстанса | `185.42.164.150` |
+| Публичный домен | `custdevai.185-42-164-150.nip.io` (wildcard-DNS nip.io, A-запись не нужна) |
+| Telegram-бот токен | @BotFather (нужен на шаге 9, до этого момента можно не иметь) |
 | Минимальный тариф | 4 vCPU / 8 GB RAM / 80 GB SSD (для ML-worker и pg_dump) |
 
 ## 1. Provisioning Selectel VPS
 
-1. В Cloud-консоли создаём облачный сервер с Ubuntu 22.04 LTS.
+1. В Cloud-консоли создаём облачный сервер с Ubuntu 24.04 LTS.
 2. Базовые ресурсы: 4 vCPU, 8 GB RAM, 80 GB NVMe SSD. Регион — Москва или Санкт-Петербург (низкая латентность к Telegram API).
 3. Открываем входящие порты: 22 (SSH), 80 (HTTP для ACME), 443 (HTTPS).
 4. Закрываем 5432, 6379, 8000 — они доступны только внутри docker-сети.
 
 ## 2. DNS
 
-Создаём A-запись (если домен на cloudflare/reg.ru/Selectel DNS):
+Для текущего деплоя используется wildcard-сервис **nip.io**: домен
+`custdevai.185-42-164-150.nip.io` уже резолвится в `185.42.164.150` без
+ручной A-записи. Проверка с локальной машины:
+
+```bash
+dig +short custdevai.185-42-164-150.nip.io
+# должно вернуть 185.42.164.150
+```
+
+Если в будущем переключаемся на собственный домен — создаём A-запись:
 
 ```
-custdevai.example.com  →  <IP_адрес_инстанса>
+custdevai.185-42-164-150.nip.io  →  185.42.164.150
 ```
 
 TTL 300 для быстрых правок при первом запуске.
@@ -33,11 +43,13 @@ TTL 300 для быстрых правок при первом запуске.
 ## 3. Подготовка хоста
 
 ```bash
-# SSH вход.
-ssh root@<IP>
+# SSH вход (ключ ~/.ssh/selectel_ed25519 уже загружен в Selectel при создании VPS).
+ssh -i ~/.ssh/selectel_ed25519 root@185.42.164.150
 
-# Обновляемся.
+# Обновляемся и ставим базовые утилиты (git нужен для клонирования репо,
+# certbot — для Let's Encrypt, ufw/fail2ban — для firewall/SSH-защиты).
 apt update && apt upgrade -y
+apt install -y ca-certificates curl gnupg lsb-release git ufw fail2ban certbot
 
 # Создаём отдельного пользователя, не работаем под root.
 adduser --disabled-password --gecos "" custdev
@@ -48,8 +60,17 @@ chown -R custdev:custdev /home/custdev/.ssh
 chmod 700 /home/custdev/.ssh
 chmod 600 /home/custdev/.ssh/authorized_keys
 
-# Установка Docker.
-apt install -y docker.io docker-compose-plugin
+# Установка Docker из официального репозитория Docker
+# (в Ubuntu 22.04/24.04 пакета docker-compose-plugin в дефолтных репах нет —
+# нужен docker.com репозиторий).
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+    > /etc/apt/sources.list.d/docker.list
+apt update
+apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+systemctl enable --now docker
 usermod -aG docker custdev
 
 # certbot для Let's Encrypt.
@@ -71,7 +92,7 @@ systemctl enable --now fail2ban
 ## 4. Клонирование репозитория
 
 ```bash
-ssh custdev@<IP>
+ssh -i ~/.ssh/selectel_ed25519 custdev@185.42.164.150
 cd ~
 git clone https://github.com/ks1kv/custdevai.git
 cd custdevai
@@ -89,7 +110,7 @@ nano .env
 
 ```ini
 ENVIRONMENT=production
-PUBLIC_DOMAIN=custdevai.example.com
+PUBLIC_DOMAIN=custdevai.185-42-164-150.nip.io
 
 # Postgres (используем СИЛЬНЫЕ случайные значения).
 POSTGRES_PASSWORD=$(openssl rand -base64 32)
@@ -103,17 +124,20 @@ BCRYPT_COST_FACTOR=12
 
 # Telegram-бот (FR-BOT-*).
 TELEGRAM_BOT_TOKEN=<из @BotFather>
-TELEGRAM_WEBHOOK_URL=https://custdevai.example.com/api/v1/telegram/webhook
+TELEGRAM_WEBHOOK_URL=https://custdevai.185-42-164-150.nip.io/api/v1/telegram/webhook
 TELEGRAM_WEBHOOK_SECRET=$(openssl rand -hex 32)
 
 # Web base URL (Phase 4: используется во втором push).
-WEB_BASE_URL=https://custdevai.example.com
-CORS_ALLOW_ORIGINS=["https://custdevai.example.com"]
+WEB_BASE_URL=https://custdevai.185-42-164-150.nip.io
+CORS_ALLOW_ORIGINS=["https://custdevai.185-42-164-150.nip.io"]
 
 # SMTP — если есть сторонний MTA (SHOULD-8); иначе оставить пустым.
+# SMTP_FROM должен быть на твоём реальном домене с настроенным DKIM/SPF —
+# почту на *.nip.io большинство MX-серверов отбросит. Если SMTP не настраиваем,
+# оставь блок пустым (FR-AUTH-06 фоллбэкнется на LoggingEmailNotifier).
 SMTP_HOST=
 SMTP_PORT=587
-SMTP_FROM=noreply@custdevai.example.com
+SMTP_FROM=
 ```
 
 Все секреты — не коммитим (NFR-SEC-06; .gitignore уже исключает .env).
@@ -126,15 +150,17 @@ Phase-trick: для первого выпуска нужно HTTP-серверу
 
 ```bash
 # 1. Поднимаем certbot в standalone — он сам становится сервером :80.
+#    ВАЖНО: --email должен быть рабочей почтой (Let's Encrypt шлёт туда уведомления
+#    об истечении сертификата за 20 дней). Подставь свой реальный e-mail.
 sudo certbot certonly --standalone \
     --agree-tos --non-interactive \
-    --email admin@custdevai.example.com \
-    -d custdevai.example.com
+    --email <REAL_ADMIN_EMAIL> \
+    -d custdevai.185-42-164-150.nip.io
 
 # 2. Создаём symlinks для docker монтирования.
 mkdir -p docker/nginx/certs
-sudo cp /etc/letsencrypt/live/custdevai.example.com/fullchain.pem docker/nginx/certs/
-sudo cp /etc/letsencrypt/live/custdevai.example.com/privkey.pem docker/nginx/certs/
+sudo cp /etc/letsencrypt/live/custdevai.185-42-164-150.nip.io/fullchain.pem docker/nginx/certs/
+sudo cp /etc/letsencrypt/live/custdevai.185-42-164-150.nip.io/privkey.pem docker/nginx/certs/
 sudo chown custdev:custdev docker/nginx/certs/*
 
 # 3. Каталог для renew-challenge (Phase 6: автообновление через certbot-renew).
@@ -169,7 +195,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml exec api \
 # Создать первого администратора (FR-AUTH-01).
 docker compose -f docker-compose.yml -f docker-compose.prod.yml exec api \
     python -m apps.api.cli create-admin \
-    --email admin@custdevai.example.com \
+    --email admin@custdevai.185-42-164-150.nip.io \
     --password "$(openssl rand -base64 24)"
 
 # Скопировать выведенный пароль в безопасное место.
@@ -183,7 +209,7 @@ SECRET=$(grep ^TELEGRAM_WEBHOOK_SECRET .env | cut -d= -f2)
 
 curl -fsS -X POST \
     "https://api.telegram.org/bot${TOKEN}/setWebhook" \
-    -F "url=https://custdevai.example.com/api/v1/telegram/webhook" \
+    -F "url=https://custdevai.185-42-164-150.nip.io/api/v1/telegram/webhook" \
     -F "secret_token=${SECRET}" \
     -F "allowed_updates=[\"message\",\"callback_query\"]"
 ```
@@ -194,19 +220,19 @@ curl -fsS -X POST \
 
 ```bash
 # 1. /health возвращает 200.
-curl -fsS https://custdevai.example.com/health
+curl -fsS https://custdevai.185-42-164-150.nip.io/health
 # {"status":"ok"}
 
 # 2. Логин админа через cookie auth.
 curl -fsS -c cookies.txt \
-    -X POST "https://custdevai.example.com/api/v1/auth/login?set_cookie=true" \
+    -X POST "https://custdevai.185-42-164-150.nip.io/api/v1/auth/login?set_cookie=true" \
     -H "Content-Type: application/json" \
-    -d '{"email":"admin@custdevai.example.com","password":"..."}'
+    -d '{"email":"admin@custdevai.185-42-164-150.nip.io","password":"..."}'
 
 # 3. /me возвращает профиль.
-curl -fsS -b cookies.txt https://custdevai.example.com/api/v1/users/me
+curl -fsS -b cookies.txt https://custdevai.185-42-164-150.nip.io/api/v1/users/me
 
-# 4. Откройте SPA в браузере: https://custdevai.example.com
+# 4. Откройте SPA в браузере: https://custdevai.185-42-164-150.nip.io
 #    Войти, создать тестовый сценарий, создать кампанию, нажать «Создать»,
 #    активировать кампанию, получить ссылку-приглашение бота.
 
