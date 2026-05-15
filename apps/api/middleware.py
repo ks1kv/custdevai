@@ -31,6 +31,12 @@ class RequireHTTPSMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):  # type: ignore[no-untyped-def]
         if self._enabled:
+            # Внутренние Docker healthcheck-пробы делают curl http://localhost:8000/health
+            # из-под того же контейнера, где TLS не терминируется — пропускаем без проверки
+            # схемы. Внешний трафик на /health всё равно проходит через Nginx и поэтому
+            # уже HTTPS (X-Forwarded-Proto=https). NFR-OPS-02.
+            if request.url.path == "/health":
+                return await call_next(request)
             scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
             if scheme.lower() != "https":
                 problem = ProblemDetail(
