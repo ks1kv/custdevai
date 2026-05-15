@@ -45,7 +45,12 @@ class AuditLog(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     action: Mapped[AuditAction] = mapped_column(
-        Enum(AuditAction, name="audit_action", create_constraint=True),
+        Enum(
+            AuditAction,
+            name="audit_action",
+            create_constraint=True,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         nullable=False,
     )
     performed_at: Mapped[datetime] = mapped_column(
