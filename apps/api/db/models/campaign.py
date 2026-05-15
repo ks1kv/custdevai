@@ -73,7 +73,12 @@ class Campaign(Base, TimestampMixin):
         index=True,
     )
     status: Mapped[CampaignStatus] = mapped_column(
-        Enum(CampaignStatus, name="campaign_status", create_constraint=True),
+        Enum(
+            CampaignStatus,
+            name="campaign_status",
+            create_constraint=True,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         nullable=False,
         default=CampaignStatus.DRAFT,
         index=True,

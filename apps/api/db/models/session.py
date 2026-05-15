@@ -59,7 +59,12 @@ class InterviewSession(Base, TimestampMixin):
     # исключает случайное логирование как печатного значения.
     telegram_id_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
     status: Mapped[SessionStatus] = mapped_column(
-        Enum(SessionStatus, name="session_status", create_constraint=True),
+        Enum(
+            SessionStatus,
+            name="session_status",
+            create_constraint=True,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         nullable=False,
         default=SessionStatus.ACTIVE,
     )

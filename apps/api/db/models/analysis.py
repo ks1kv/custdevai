@@ -81,7 +81,12 @@ class SentimentResult(Base, TimestampMixin):
         unique=True,
     )
     label: Mapped[SentimentLabel] = mapped_column(
-        Enum(SentimentLabel, name="sentiment_label", create_constraint=True),
+        Enum(
+            SentimentLabel,
+            name="sentiment_label",
+            create_constraint=True,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         nullable=False,
     )
     confidence: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
