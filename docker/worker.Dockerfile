@@ -22,7 +22,14 @@ RUN apt-get update \
 
 COPY pyproject.toml README.md /app/
 COPY apps /app/apps
+# CPU-only torch ставится отдельно из официального PyTorch CPU-индекса.
+# Это критично для production без GPU: дефолтные wheels тянут nvidia-cublas,
+# nvidia-cudnn, nvidia-cufft и пр. — суммарно ~3 GB бесполезного балласта,
+# из-за которого билд падал на 80 GB VPS с "No space left on device".
+# После того как torch уже установлен, `pip install -e ".[ml,dev]"`
+# увидит его и не будет переустанавливать.
 RUN pip install --upgrade pip \
+ && pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.2,<2.6" \
  && pip install -e ".[ml,dev]"
 
 # ---- Runtime stage ---------------------------------------------------------
