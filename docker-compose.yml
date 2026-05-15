@@ -113,7 +113,10 @@ services:
       redis:
         condition: service_healthy
       api:
-        condition: service_started
+        # Бот вызывает bot.set_webhook(url=https://.../webhook), Telegram при
+        # этом сам проверяет доступность URL у нас. Если API ещё не accepting,
+        # верификация Telegram-а отваливается по таймауту. Ждём api healthy.
+        condition: service_healthy
     networks:
       - backend
 

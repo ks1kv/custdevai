@@ -37,6 +37,8 @@ FROM python:3.11-slim AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    HOME=/tmp \
+    MPLCONFIGDIR=/tmp/.matplotlib \
     ML_MODEL_CACHE_DIR=/models \
     HF_HOME=/models \
     TRANSFORMERS_CACHE=/models \
