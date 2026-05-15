@@ -9,8 +9,8 @@
 |---|---|
 | Selectel-аккаунт + биллинг | https://my.selectel.ru/ |
 | SSH-ключ для root/admin доступа | `~/.ssh/selectel_ed25519` (публичная часть загружена в Selectel) |
-| Публичный IP инстанса | `185.42.164.150` |
-| Публичный домен | `custdevai.185-42-164-150.nip.io` (wildcard-DNS nip.io, A-запись не нужна) |
+| Публичный IP инстанса | `185.42.165.183` |
+| Публичный домен | `custdevai.185-42-165-183.nip.io` (wildcard-DNS nip.io, A-запись не нужна) |
 | Telegram-бот токен | @BotFather (нужен на шаге 9, до этого момента можно не иметь) |
 | Минимальный тариф | 4 vCPU / 8 GB RAM / 80 GB SSD (для ML-worker и pg_dump) |
 
@@ -24,18 +24,18 @@
 ## 2. DNS
 
 Для текущего деплоя используется wildcard-сервис **nip.io**: домен
-`custdevai.185-42-164-150.nip.io` уже резолвится в `185.42.164.150` без
+`custdevai.185-42-165-183.nip.io` уже резолвится в `185.42.165.183` без
 ручной A-записи. Проверка с локальной машины:
 
 ```bash
-dig +short custdevai.185-42-164-150.nip.io
-# должно вернуть 185.42.164.150
+dig +short custdevai.185-42-165-183.nip.io
+# должно вернуть 185.42.165.183
 ```
 
 Если в будущем переключаемся на собственный домен — создаём A-запись:
 
 ```
-custdevai.185-42-164-150.nip.io  →  185.42.164.150
+custdevai.185-42-165-183.nip.io  →  185.42.165.183
 ```
 
 TTL 300 для быстрых правок при первом запуске.
@@ -44,7 +44,7 @@ TTL 300 для быстрых правок при первом запуске.
 
 ```bash
 # SSH вход (ключ ~/.ssh/selectel_ed25519 уже загружен в Selectel при создании VPS).
-ssh -i ~/.ssh/selectel_ed25519 root@185.42.164.150
+ssh -i ~/.ssh/selectel_ed25519 root@185.42.165.183
 
 # Обновляемся и ставим базовые утилиты (git нужен для клонирования репо,
 # certbot — для Let's Encrypt, ufw/fail2ban — для firewall/SSH-защиты).
@@ -92,7 +92,7 @@ systemctl enable --now fail2ban
 ## 4. Клонирование репозитория
 
 ```bash
-ssh -i ~/.ssh/selectel_ed25519 custdev@185.42.164.150
+ssh -i ~/.ssh/selectel_ed25519 custdev@185.42.165.183
 cd ~
 git clone https://github.com/ks1kv/custdevai.git
 cd custdevai
@@ -110,7 +110,7 @@ nano .env
 
 ```ini
 ENVIRONMENT=production
-PUBLIC_DOMAIN=custdevai.185-42-164-150.nip.io
+PUBLIC_DOMAIN=custdevai.185-42-165-183.nip.io
 
 # Postgres (используем СИЛЬНЫЕ случайные значения).
 POSTGRES_PASSWORD=$(openssl rand -base64 32)
@@ -124,12 +124,12 @@ BCRYPT_COST_FACTOR=12
 
 # Telegram-бот (FR-BOT-*).
 TELEGRAM_BOT_TOKEN=<из @BotFather>
-TELEGRAM_WEBHOOK_URL=https://custdevai.185-42-164-150.nip.io/api/v1/telegram/webhook
+TELEGRAM_WEBHOOK_URL=https://custdevai.185-42-165-183.nip.io/api/v1/telegram/webhook
 TELEGRAM_WEBHOOK_SECRET=$(openssl rand -hex 32)
 
 # Web base URL (Phase 4: используется во втором push).
-WEB_BASE_URL=https://custdevai.185-42-164-150.nip.io
-CORS_ALLOW_ORIGINS=["https://custdevai.185-42-164-150.nip.io"]
+WEB_BASE_URL=https://custdevai.185-42-165-183.nip.io
+CORS_ALLOW_ORIGINS=["https://custdevai.185-42-165-183.nip.io"]
 
 # SMTP — если есть сторонний MTA (SHOULD-8); иначе оставить пустым.
 # SMTP_FROM должен быть на твоём реальном домене с настроенным DKIM/SPF —
@@ -155,12 +155,12 @@ Phase-trick: для первого выпуска нужно HTTP-серверу
 sudo certbot certonly --standalone \
     --agree-tos --non-interactive \
     --email <REAL_ADMIN_EMAIL> \
-    -d custdevai.185-42-164-150.nip.io
+    -d custdevai.185-42-165-183.nip.io
 
 # 2. Создаём symlinks для docker монтирования.
 mkdir -p docker/nginx/certs
-sudo cp /etc/letsencrypt/live/custdevai.185-42-164-150.nip.io/fullchain.pem docker/nginx/certs/
-sudo cp /etc/letsencrypt/live/custdevai.185-42-164-150.nip.io/privkey.pem docker/nginx/certs/
+sudo cp /etc/letsencrypt/live/custdevai.185-42-165-183.nip.io/fullchain.pem docker/nginx/certs/
+sudo cp /etc/letsencrypt/live/custdevai.185-42-165-183.nip.io/privkey.pem docker/nginx/certs/
 sudo chown custdev:custdev docker/nginx/certs/*
 
 # 3. Каталог для renew-challenge (Phase 6: автообновление через certbot-renew).
@@ -195,7 +195,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml exec api \
 # Создать первого администратора (FR-AUTH-01).
 docker compose -f docker-compose.yml -f docker-compose.prod.yml exec api \
     python -m apps.api.cli create-admin \
-    --email admin@custdevai.185-42-164-150.nip.io \
+    --email admin@custdevai.185-42-165-183.nip.io \
     --password "$(openssl rand -base64 24)"
 
 # Скопировать выведенный пароль в безопасное место.
@@ -209,7 +209,7 @@ SECRET=$(grep ^TELEGRAM_WEBHOOK_SECRET .env | cut -d= -f2)
 
 curl -fsS -X POST \
     "https://api.telegram.org/bot${TOKEN}/setWebhook" \
-    -F "url=https://custdevai.185-42-164-150.nip.io/api/v1/telegram/webhook" \
+    -F "url=https://custdevai.185-42-165-183.nip.io/api/v1/telegram/webhook" \
     -F "secret_token=${SECRET}" \
     -F "allowed_updates=[\"message\",\"callback_query\"]"
 ```
@@ -220,19 +220,19 @@ curl -fsS -X POST \
 
 ```bash
 # 1. /health возвращает 200.
-curl -fsS https://custdevai.185-42-164-150.nip.io/health
+curl -fsS https://custdevai.185-42-165-183.nip.io/health
 # {"status":"ok"}
 
 # 2. Логин админа через cookie auth.
 curl -fsS -c cookies.txt \
-    -X POST "https://custdevai.185-42-164-150.nip.io/api/v1/auth/login?set_cookie=true" \
+    -X POST "https://custdevai.185-42-165-183.nip.io/api/v1/auth/login?set_cookie=true" \
     -H "Content-Type: application/json" \
-    -d '{"email":"admin@custdevai.185-42-164-150.nip.io","password":"..."}'
+    -d '{"email":"admin@custdevai.185-42-165-183.nip.io","password":"..."}'
 
 # 3. /me возвращает профиль.
-curl -fsS -b cookies.txt https://custdevai.185-42-164-150.nip.io/api/v1/users/me
+curl -fsS -b cookies.txt https://custdevai.185-42-165-183.nip.io/api/v1/users/me
 
-# 4. Откройте SPA в браузере: https://custdevai.185-42-164-150.nip.io
+# 4. Откройте SPA в браузере: https://custdevai.185-42-165-183.nip.io
 #    Войти, создать тестовый сценарий, создать кампанию, нажать «Создать»,
 #    активировать кампанию, получить ссылку-приглашение бота.
 
