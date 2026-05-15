@@ -46,8 +46,10 @@ TTL 300 для быстрых правок при первом запуске.
 # SSH вход (ключ ~/.ssh/selectel_ed25519 уже загружен в Selectel при создании VPS).
 ssh -i ~/.ssh/selectel_ed25519 root@185.42.164.150
 
-# Обновляемся.
+# Обновляемся и ставим базовые утилиты (git нужен для клонирования репо,
+# certbot — для Let's Encrypt, ufw/fail2ban — для firewall/SSH-защиты).
 apt update && apt upgrade -y
+apt install -y ca-certificates curl gnupg lsb-release git ufw fail2ban certbot
 
 # Создаём отдельного пользователя, не работаем под root.
 adduser --disabled-password --gecos "" custdev
