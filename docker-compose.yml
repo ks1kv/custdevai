@@ -173,7 +173,11 @@ services:
       - ./apps:/app/apps:ro
       - backups_storage:/var/lib/custdevai/backups
     command:
-      ["celery", "-A", "apps.worker.celery_app", "beat", "--loglevel=info"]
+      [
+        "celery", "-A", "apps.worker.celery_app", "beat",
+        "--loglevel=info",
+        "--schedule=/var/lib/custdevai/backups/.celerybeat-schedule",
+      ]
     depends_on:
       postgres:
         condition: service_healthy
