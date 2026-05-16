@@ -53,42 +53,49 @@ async def accept_answer(
 
     Подтверждение респонденту отправляется handler-ом ТОЛЬКО после успешного
     commit() этой функции. При rollback handler покажет INTERNAL_ERROR.
+
+    Не открываем здесь явный `db.begin()` — в SQLAlchemy 2.x сессия уже
+    находится в autobegin-состоянии после предыдущих `db.get(...)` из
+    handler-а (например, fetch_campaign_script_questions). Все DML в этой
+    функции исполняются внутри той же транзакции, и commit её закрывает —
+    ACID-гарантия не страдает. Открытие явного `db.begin()` поверх
+    autobegin кидает InvalidRequestError.
     """
     now = _utcnow()
-    async with db.begin():
-        stmt = (
-            pg_insert(Answer)
-            .values(
-                session_id=session_id,
-                question_id=question_id,
-                text=text,
-                answered_at=now,
-            )
-            .on_conflict_do_nothing(index_elements=["session_id", "question_id"])
-            .returning(Answer.id)
+    stmt = (
+        pg_insert(Answer)
+        .values(
+            session_id=session_id,
+            question_id=question_id,
+            text=text,
+            answered_at=now,
         )
-        result = await db.execute(stmt)
-        inserted_id = result.scalar_one_or_none()
-        inserted = inserted_id is not None
+        .on_conflict_do_nothing(index_elements=["session_id", "question_id"])
+        .returning(Answer.id)
+    )
+    result = await db.execute(stmt)
+    inserted_id = result.scalar_one_or_none()
+    inserted = inserted_id is not None
 
-        if inserted:
-            await db.execute(
-                update(InterviewSession)
-                .where(InterviewSession.id == session_id)
-                .values(
-                    progress_count=InterviewSession.progress_count + 1,
-                    last_activity_at=now,
-                )
+    if inserted:
+        await db.execute(
+            update(InterviewSession)
+            .where(InterviewSession.id == session_id)
+            .values(
+                progress_count=InterviewSession.progress_count + 1,
+                last_activity_at=now,
             )
-        else:
-            # Сообщение-дубль: counter не трогаем, но last_activity_at
-            # обновляем, чтобы 48-часовое окно считалось от последнего
-            # реального действия пользователя (FR-BOT-05).
-            await db.execute(
-                update(InterviewSession)
-                .where(InterviewSession.id == session_id)
-                .values(last_activity_at=now)
-            )
+        )
+    else:
+        # Сообщение-дубль: counter не трогаем, но last_activity_at
+        # обновляем, чтобы 48-часовое окно считалось от последнего
+        # реального действия пользователя (FR-BOT-05).
+        await db.execute(
+            update(InterviewSession)
+            .where(InterviewSession.id == session_id)
+            .values(last_activity_at=now)
+        )
+    await db.commit()
 
     # После commit-а нужно решить: какой следующий вопрос отправлять.
     # Перечитываем session с новым progress_count.
