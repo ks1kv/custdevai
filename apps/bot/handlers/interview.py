@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -10,6 +11,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from apps.api.db.models import Question
+from apps.api.db.models.campaign import CampaignStatus
 from apps.bot import messages
 from apps.bot.db import open_session
 from apps.bot.keyboards import LONG_ANSWER_DONE_CALLBACK, long_answer_done_keyboard
@@ -30,6 +32,15 @@ from apps.bot.states import (
 
 logger = logging.getLogger(__name__)
 router = Router(name="bot.interview")
+
+# FR-SENT-06: поддерживается только русский. На уровне бота отбраковываем
+# тексты без хотя бы одного кириллического символа — чтобы латиница/эмодзи
+# не доходили до ML, который их всё равно отвергнет.
+_CYRILLIC_RE = re.compile(r"[А-Яа-яЁё]")
+
+
+def _has_cyrillic(text: str) -> bool:
+    return _CYRILLIC_RE.search(text) is not None
 
 
 # ---- /stop ------------------------------------------------------------------
@@ -64,6 +75,10 @@ async def handle_answer(message: Message, state: FSMContext) -> None:
         await message.answer(messages.NON_TEXT_REJECTED)
         return
 
+    if not _has_cyrillic(text):
+        await message.answer(messages.NON_CYRILLIC_REJECTED)
+        return
+
     if len(text) >= MAX_ANSWER_LENGTH:
         # Telegram сам режет на 4096; пользователь, скорее всего, попытается
         # прислать ответ длиннее лимита одного сообщения. Переходим в режим
@@ -90,7 +105,23 @@ async def _persist_and_advance(message: Message, state: FSMContext, text: str) -
         if fetched is None:
             await message.answer(messages.INTERNAL_ERROR)
             return
-        _, script = fetched
+        campaign_obj, script = fetched
+
+        # Жёсткая семантика паузы/завершения: ответы принимаем только для
+        # RUNNING. На паузе сессия остаётся открытой — респондент сможет
+        # продолжить после Resume, ранее сохранённые ответы не теряются.
+        if campaign_obj.status == CampaignStatus.PAUSED:
+            await message.answer(messages.CAMPAIGN_PAUSED_REJECT)
+            return
+        if campaign_obj.status == CampaignStatus.COMPLETED:
+            await message.answer(messages.CAMPAIGN_COMPLETED_REJECT)
+            await state.clear()
+            return
+        if campaign_obj.status != CampaignStatus.RUNNING:
+            # draft не должен встречаться в активной сессии, но safe-guard.
+            await message.answer(messages.CAMPAIGN_PAUSED_REJECT)
+            return
+
         questions: list[Question] = list(script.questions)
 
         try:

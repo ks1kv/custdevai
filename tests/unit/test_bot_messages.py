@@ -22,10 +22,30 @@ def test_static_messages_are_russian() -> None:
         "INTERRUPTED_MESSAGE",
         "COMPLETED_MESSAGE",
         "INTERNAL_ERROR",
+        "CAMPAIGN_PAUSED_REJECT",
+        "CAMPAIGN_COMPLETED_REJECT",
+        "NON_CYRILLIC_REJECTED",
     ):
         msg = getattr(messages, name)
         assert isinstance(msg, str)
         assert _is_russian(msg), f"{name} doesn't contain Cyrillic"
+
+
+def test_has_cyrillic_helper() -> None:
+    """FR-SENT-06: бот отбраковывает ответы без кириллицы."""
+    from apps.bot.handlers.interview import _has_cyrillic
+
+    # Должны проходить
+    assert _has_cyrillic("привет")
+    assert _has_cyrillic("Купил latte в Старбакс")  # смешанный текст ок
+    assert _has_cyrillic("А")
+    assert _has_cyrillic("ё")
+    # Не должны проходить
+    assert not _has_cyrillic("a esli vot tak, shavaesh?")
+    assert not _has_cyrillic("")
+    assert not _has_cyrillic("123 !@#")
+    assert not _has_cyrillic("😀👍")
+    assert not _has_cyrillic("Hello, world")
 
 
 def test_consent_text_renders() -> None:
