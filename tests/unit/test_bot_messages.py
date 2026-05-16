@@ -25,6 +25,9 @@ def test_static_messages_are_russian() -> None:
         "CAMPAIGN_PAUSED_REJECT",
         "CAMPAIGN_COMPLETED_REJECT",
         "NON_CYRILLIC_REJECTED",
+        "QUESTION_SKIPPED_ACCEPTED",
+        "QUESTION_REQUIRED_REJECT",
+        "SKIP_OUTSIDE_INTERVIEW",
     ):
         msg = getattr(messages, name)
         assert isinstance(msg, str)
