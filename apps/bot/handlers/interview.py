@@ -17,8 +17,10 @@ from apps.bot.db import open_session
 from apps.bot.keyboards import LONG_ANSWER_DONE_CALLBACK, long_answer_done_keyboard
 from apps.bot.services.interview_service import (
     MAX_ANSWER_LENGTH,
+    AnswerResult,
     accept_answer,
     format_question,
+    skip_question,
 )
 from apps.bot.services.notify_service import maybe_notify_researcher_all_completed
 from apps.bot.services.session_service import mark_completed, mark_interrupted
@@ -63,6 +65,88 @@ async def handle_stop(message: Message, state: FSMContext) -> None:
                 await maybe_notify_researcher_all_completed(db, campaign_id=int(campaign_id))
     await state.clear()
     await message.answer(messages.INTERRUPTED_MESSAGE)
+
+
+# ---- /skip — пропуск необязательного вопроса --------------------------------
+# Регистрируем ДО handle_answer: Command("skip") должен сматчиться раньше,
+# чем F.text, иначе `/skip` уехал бы в handle_answer и был бы отвергнут как
+# текст без кириллицы.
+
+
+@router.message(InterviewState.IN_INTERVIEW, Command("skip"))
+@router.message(InterviewState.IN_INTERVIEW_LONG_ANSWER, Command("skip"))
+async def handle_skip(message: Message, state: FSMContext) -> None:
+    """Пропустить текущий вопрос, если он не обязательный.
+
+    Обязательные → отказ; необязательные → progress_count += 1, без
+    сохранения Answer. В состоянии LONG_ANSWER чанки сбрасываются, FSM
+    переключается обратно в IN_INTERVIEW.
+    """
+    data = await state.get_data()
+    session_id = data.get(DATA_SESSION_ID)
+    campaign_id = data.get(DATA_CAMPAIGN_ID)
+    current_question_id = data.get(DATA_CURRENT_QUESTION_ID)
+    if session_id is None or campaign_id is None or current_question_id is None:
+        await message.answer(messages.SKIP_OUTSIDE_INTERVIEW)
+        return
+
+    async with open_session() as db:
+        from apps.api.db.repositories.sessions import fetch_campaign_script_questions
+
+        fetched = await fetch_campaign_script_questions(db, int(campaign_id))
+        if fetched is None:
+            await message.answer(messages.INTERNAL_ERROR)
+            return
+        campaign_obj, script = fetched
+
+        # Те же status-гарды, что и для accept_answer.
+        if campaign_obj.status == CampaignStatus.PAUSED:
+            await message.answer(messages.CAMPAIGN_PAUSED_REJECT)
+            return
+        if campaign_obj.status == CampaignStatus.COMPLETED:
+            await message.answer(messages.CAMPAIGN_COMPLETED_REJECT)
+            await state.clear()
+            return
+        if campaign_obj.status != CampaignStatus.RUNNING:
+            await message.answer(messages.CAMPAIGN_PAUSED_REJECT)
+            return
+
+        questions: list[Question] = list(script.questions)
+        current = next((q for q in questions if q.id == int(current_question_id)), None)
+        if current is None:
+            await message.answer(messages.INTERNAL_ERROR)
+            return
+
+        if current.is_required:
+            await message.answer(messages.QUESTION_REQUIRED_REJECT)
+            return
+
+        try:
+            result = await skip_question(
+                db,
+                session_id=int(session_id),
+                current_question=current,
+                questions=questions,
+            )
+        except Exception as exc:
+            logger.exception("skip_question failed: %s", exc)
+            await message.answer(messages.INTERNAL_ERROR)
+            return
+
+        if result.is_last:
+            await mark_completed(db, int(session_id))
+            await maybe_notify_researcher_all_completed(db, campaign_id=int(campaign_id))
+
+    # Если пропускали из LONG_ANSWER — сбросить накопленные чанки и
+    # вернуться в IN_INTERVIEW (на случай продолжения интервью).
+    current_state = await state.get_state()
+    if current_state == InterviewState.IN_INTERVIEW_LONG_ANSWER.state:
+        await state.update_data({DATA_PENDING_CHUNKS: []})
+        await state.set_state(InterviewState.IN_INTERVIEW)
+
+    await _send_next_or_complete(
+        message, state, result, questions, ack=messages.QUESTION_SKIPPED_ACCEPTED
+    )
 
 
 # ---- Текстовый ответ в IN_INTERVIEW -----------------------------------------
@@ -142,10 +226,25 @@ async def _persist_and_advance(message: Message, state: FSMContext, text: str) -
             await maybe_notify_researcher_all_completed(db, campaign_id=campaign_id)
 
     # Подтверждение (только после commit-а в accept_answer).
+    await _send_next_or_complete(
+        message, state, result, questions, ack=messages.ANSWER_ACCEPTED_SHORT
+    )
+
+
+async def _send_next_or_complete(
+    message: Message,
+    state: FSMContext,
+    result: AnswerResult,
+    questions: list[Question],
+    *,
+    ack: str,
+) -> None:
+    """После accept_answer/skip_question отправить следующий вопрос или
+    финальное сообщение. `ack` — подтверждение действия (принято/пропущено)."""
     if not result.is_last and result.next_question is not None:
         index = next((i for i, q in enumerate(questions) if q.id == result.next_question.id), 0)
         await state.update_data({DATA_CURRENT_QUESTION_ID: result.next_question.id})
-        await message.answer(messages.ANSWER_ACCEPTED_SHORT)
+        await message.answer(ack)
         await message.answer(format_question(result.next_question, index, len(questions)))
     else:
         await message.answer(messages.COMPLETED_MESSAGE)

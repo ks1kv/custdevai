@@ -30,6 +30,8 @@ def format_question(question: Question, index: int, total: int) -> str:
     body = messages.QUESTION_TEMPLATE.format(idx=index + 1, total=total, text=question.text)
     if question.hint_text:
         body += messages.QUESTION_HINT_SUFFIX.format(hint=question.hint_text)
+    if not question.is_required:
+        body += messages.QUESTION_OPTIONAL_SUFFIX
     return body
 
 
@@ -105,6 +107,48 @@ async def accept_answer(
     next_question = None if is_last else questions[next_index]
     return AnswerResult(
         inserted=inserted,
+        is_last=is_last,
+        next_question=next_question,
+    )
+
+
+async def skip_question(
+    db: AsyncSession,
+    *,
+    session_id: int,
+    current_question: Question,
+    questions: list[Question],
+) -> AnswerResult:
+    """Пропустить необязательный вопрос: НЕ создаём Answer, только
+    инкрементируем progress_count, чтобы перейти к следующему.
+
+    Поднимает ValueError, если current_question.is_required — handler
+    обязан проверить is_required ДО вызова и показать пользователю
+    QUESTION_REQUIRED_REJECT. ValueError тут — защита от пути в обход.
+
+    Так же, как accept_answer, не открывает явный `db.begin()` —
+    операция выполняется внутри autobegin-транзакции вызывающего, и
+    `db.commit()` её закрывает.
+    """
+    if current_question.is_required:
+        raise ValueError("Cannot skip a required question")
+    now = _utcnow()
+    await db.execute(
+        update(InterviewSession)
+        .where(InterviewSession.id == session_id)
+        .values(
+            progress_count=InterviewSession.progress_count + 1,
+            last_activity_at=now,
+        )
+    )
+    await db.commit()
+
+    session = await db.get(InterviewSession, session_id)
+    next_index = session.progress_count if session is not None else len(questions)
+    is_last = next_index >= len(questions)
+    next_question = None if is_last else questions[next_index]
+    return AnswerResult(
+        inserted=False,
         is_last=is_last,
         next_question=next_question,
     )

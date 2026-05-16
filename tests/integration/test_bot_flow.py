@@ -230,6 +230,76 @@ async def test_accept_answer_idempotent_on_duplicate(db_session, seeded_running_
 
 
 @pytest.mark.asyncio
+async def test_skip_question_advances_counter_without_answer(
+    db_session, seeded_running_campaign
+) -> None:
+    """Пропуск необязательного вопроса: progress_count += 1, Answer не создаётся."""
+    from sqlalchemy import select
+
+    from apps.api.db.models import Question
+    from apps.bot.services.interview_service import skip_question
+
+    cid = seeded_running_campaign["campaign_id"]
+    ctx = await begin_session(db_session, campaign_id=cid, telegram_user_id=55)
+    assert ctx is not None
+
+    # Сделаем первый вопрос необязательным для теста.
+    first_q = ctx.questions[0]
+    first_q.is_required = False
+    await db_session.commit()
+    # Перечитываем, чтобы получить чистое состояние.
+    fresh_first = await db_session.get(Question, first_q.id)
+    assert fresh_first is not None and fresh_first.is_required is False
+
+    result = await skip_question(
+        db_session,
+        session_id=ctx.session.id,
+        current_question=fresh_first,
+        questions=ctx.questions,
+    )
+    assert result.inserted is False
+    assert result.is_last is False
+    assert result.next_question is not None
+    assert result.next_question.id == ctx.questions[1].id
+
+    # В БД Answer-а нет.
+    answers = (
+        (await db_session.execute(select(Answer).where(Answer.session_id == ctx.session.id)))
+        .scalars()
+        .all()
+    )
+    assert answers == []
+
+    # progress_count увеличился на 1.
+    refreshed = await db_session.get(InterviewSession, ctx.session.id)
+    assert refreshed is not None and refreshed.progress_count == 1
+
+
+@pytest.mark.asyncio
+async def test_skip_question_refuses_required(db_session, seeded_running_campaign) -> None:
+    """ValueError при попытке пропустить обязательный вопрос."""
+    from apps.bot.services.interview_service import skip_question
+
+    cid = seeded_running_campaign["campaign_id"]
+    ctx = await begin_session(db_session, campaign_id=cid, telegram_user_id=56)
+    assert ctx is not None
+    # Дефолтные вопросы из conftest идут required=True; проверяем.
+    assert ctx.questions[0].is_required is True
+
+    with pytest.raises(ValueError, match="required"):
+        await skip_question(
+            db_session,
+            session_id=ctx.session.id,
+            current_question=ctx.questions[0],
+            questions=ctx.questions,
+        )
+
+    # progress_count не сдвинулся.
+    refreshed = await db_session.get(InterviewSession, ctx.session.id)
+    assert refreshed is not None and refreshed.progress_count == 0
+
+
+@pytest.mark.asyncio
 async def test_accept_answer_works_when_session_already_in_transaction(
     db_session, seeded_running_campaign
 ) -> None:
