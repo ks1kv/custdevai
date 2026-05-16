@@ -2,6 +2,10 @@
  * fetch-обёртка для API CustDevAI. httpOnly cookies автоматически
  * передаются через `credentials: "include"`. RFC 7807 ошибки
  * парсятся в ApiError.
+ *
+ * При 401 пытаемся один раз прозрачно обновить пару токенов через
+ * /api/v1/auth/refresh и повторить исходный запрос — чтобы пользователь
+ * не вылетал из системы по истечении 15-минутного TTL access-токена.
  */
 
 import type { ProblemDetail } from "./types";
@@ -25,6 +29,9 @@ export class ApiError extends Error {
 const API_BASE = (import.meta as unknown as { env: { VITE_API_BASE_URL?: string } })
   .env.VITE_API_BASE_URL ?? "";
 
+const REFRESH_PATH = "/api/v1/auth/refresh";
+const LOGIN_PATH = "/api/v1/auth/login";
+
 function buildUrl(path: string): URL {
   // Если API_BASE пустой — same-origin: используем window.location.origin
   // как базу, чтобы new URL() не упал на относительном пути.
@@ -38,10 +45,40 @@ interface RequestOptions {
   signal?: AbortSignal;
 }
 
-export async function apiRequest<T>(
-  path: string,
-  options: RequestOptions = {},
-): Promise<T> {
+// Синглтон-промис активного refresh-запроса. Если параллельно отлетели
+// несколько 401, все они дождутся одного и того же refresh, а не
+// запустят N параллельных (которые бы дрались за один refresh_token).
+let refreshPromise: Promise<boolean> | null = null;
+
+function isAuthPath(path: string): boolean {
+  return path.startsWith(REFRESH_PATH) || path.startsWith(LOGIN_PATH);
+}
+
+async function tryRefresh(): Promise<boolean> {
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = (async () => {
+    try {
+      const url = buildUrl(`${REFRESH_PATH}?set_cookie=true`);
+      const res = await fetch(url.toString(), {
+        method: "POST",
+        credentials: "include",
+        headers: { Accept: "application/json" },
+      });
+      return res.ok;
+    } catch {
+      return false;
+    } finally {
+      // Освобождаем замок на следующем тике, чтобы все ожидающие
+      // запросы успели снять разделяемый промис.
+      setTimeout(() => {
+        refreshPromise = null;
+      }, 0);
+    }
+  })();
+  return refreshPromise;
+}
+
+async function doFetch(path: string, options: RequestOptions): Promise<Response> {
   const { method = "GET", body, query, signal } = options;
   const url = buildUrl(path);
   if (query) {
@@ -50,17 +87,31 @@ export async function apiRequest<T>(
       url.searchParams.set(k, String(v));
     }
   }
-
   const headers: Record<string, string> = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
-
-  const res = await fetch(url.toString(), {
+  return fetch(url.toString(), {
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
     credentials: "include",
     signal,
   });
+}
+
+async function fetchWithAuthRetry(path: string, options: RequestOptions): Promise<Response> {
+  const res = await doFetch(path, options);
+  if (res.status !== 401 || isAuthPath(path)) return res;
+  // 401 на любом обычном запросе — пробуем один раз refresh и повторяем.
+  const refreshed = await tryRefresh();
+  if (!refreshed) return res;
+  return doFetch(path, options);
+}
+
+export async function apiRequest<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  const res = await fetchWithAuthRetry(path, options);
 
   if (res.status === 204) return undefined as T;
 
@@ -86,19 +137,7 @@ export async function apiRequest<T>(
 }
 
 export async function apiBlob(path: string, options: RequestOptions = {}): Promise<Blob> {
-  const { method = "GET", query, signal } = options;
-  const url = buildUrl(path);
-  if (query) {
-    for (const [k, v] of Object.entries(query)) {
-      if (v === undefined) continue;
-      url.searchParams.set(k, String(v));
-    }
-  }
-  const res = await fetch(url.toString(), {
-    method,
-    credentials: "include",
-    signal,
-  });
+  const res = await fetchWithAuthRetry(path, options);
   if (!res.ok) {
     let problem: ProblemDetail = {
       type: "about:blank",
