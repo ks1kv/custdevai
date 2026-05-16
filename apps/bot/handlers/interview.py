@@ -20,6 +20,7 @@ from apps.bot.services.interview_service import (
     AnswerResult,
     accept_answer,
     format_question,
+    get_existing_answer_text,
     skip_question,
 )
 from apps.bot.services.notify_service import maybe_notify_researcher_all_completed
@@ -67,6 +68,79 @@ async def handle_stop(message: Message, state: FSMContext) -> None:
     await message.answer(messages.INTERRUPTED_MESSAGE)
 
 
+# ---- /back — вернуться к предыдущему вопросу --------------------------------
+# Регистрируем ДО handle_answer, как и /skip — F.text иначе перехватит `/back`.
+
+
+@router.message(InterviewState.IN_INTERVIEW, Command("back"))
+@router.message(InterviewState.IN_INTERVIEW_LONG_ANSWER, Command("back"))
+async def handle_back(message: Message, state: FSMContext) -> None:
+    """Вернуться на один вопрос назад, чтобы изменить уже данный ответ.
+
+    Бот покажет предыдущий вопрос вместе с текущим (сохранённым ранее)
+    ответом. Новый текст перезапишет старый через accept_answer с
+    allow_update=True — progress_count не двигается, потому что слот
+    уже посчитан. После правки респондент возвращается на frontier
+    (тот вопрос, где был до /back).
+    """
+    data = await state.get_data()
+    session_id = data.get(DATA_SESSION_ID)
+    campaign_id = data.get(DATA_CAMPAIGN_ID)
+    current_question_id = data.get(DATA_CURRENT_QUESTION_ID)
+    if session_id is None or campaign_id is None or current_question_id is None:
+        await message.answer(messages.BACK_OUTSIDE_INTERVIEW)
+        return
+
+    async with open_session() as db:
+        from apps.api.db.repositories.sessions import fetch_campaign_script_questions
+
+        fetched = await fetch_campaign_script_questions(db, int(campaign_id))
+        if fetched is None:
+            await message.answer(messages.INTERNAL_ERROR)
+            return
+        campaign_obj, script = fetched
+
+        # /back во время паузы — отказ: ничего не пишем, не меняем FSM.
+        if campaign_obj.status == CampaignStatus.PAUSED:
+            await message.answer(messages.CAMPAIGN_PAUSED_REJECT)
+            return
+        if campaign_obj.status == CampaignStatus.COMPLETED:
+            await message.answer(messages.CAMPAIGN_COMPLETED_REJECT)
+            await state.clear()
+            return
+        if campaign_obj.status != CampaignStatus.RUNNING:
+            await message.answer(messages.CAMPAIGN_PAUSED_REJECT)
+            return
+
+        questions: list[Question] = list(script.questions)
+        current_index = next(
+            (i for i, q in enumerate(questions) if q.id == int(current_question_id)), None
+        )
+        if current_index is None:
+            await message.answer(messages.INTERNAL_ERROR)
+            return
+        if current_index == 0:
+            await message.answer(messages.ALREADY_AT_FIRST_QUESTION)
+            return
+
+        prev_index = current_index - 1
+        prev_q = questions[prev_index]
+        previous_answer_text = await get_existing_answer_text(
+            db, session_id=int(session_id), question_id=prev_q.id
+        )
+
+    # Из LONG_ANSWER /back сбрасывает накопленные чанки и возвращает в IN_INTERVIEW.
+    current_state = await state.get_state()
+    if current_state == InterviewState.IN_INTERVIEW_LONG_ANSWER.state:
+        await state.update_data({DATA_PENDING_CHUNKS: []})
+        await state.set_state(InterviewState.IN_INTERVIEW)
+
+    await state.update_data({DATA_CURRENT_QUESTION_ID: prev_q.id})
+    if previous_answer_text is not None:
+        await message.answer(messages.PREVIOUS_ANSWER_PREFIX.format(text=previous_answer_text))
+    await message.answer(format_question(prev_q, prev_index, len(questions)))
+
+
 # ---- /skip — пропуск необязательного вопроса --------------------------------
 # Регистрируем ДО handle_answer: Command("skip") должен сматчиться раньше,
 # чем F.text, иначе `/skip` уехал бы в handle_answer и был бы отвергнут как
@@ -91,6 +165,7 @@ async def handle_skip(message: Message, state: FSMContext) -> None:
         return
 
     async with open_session() as db:
+        from apps.api.db.models import InterviewSession
         from apps.api.db.repositories.sessions import fetch_campaign_script_questions
 
         fetched = await fetch_campaign_script_questions(db, int(campaign_id))
@@ -112,14 +187,21 @@ async def handle_skip(message: Message, state: FSMContext) -> None:
             return
 
         questions: list[Question] = list(script.questions)
-        current = next((q for q in questions if q.id == int(current_question_id)), None)
-        if current is None:
+        current_index = next(
+            (i for i, q in enumerate(questions) if q.id == int(current_question_id)), None
+        )
+        if current_index is None:
             await message.answer(messages.INTERNAL_ERROR)
             return
+        current = questions[current_index]
 
         if current.is_required:
             await message.answer(messages.QUESTION_REQUIRED_REJECT)
             return
+
+        session_obj = await db.get(InterviewSession, int(session_id))
+        progress_count = session_obj.progress_count if session_obj is not None else 0
+        is_editing = current_index < progress_count
 
         try:
             result = await skip_question(
@@ -127,6 +209,7 @@ async def handle_skip(message: Message, state: FSMContext) -> None:
                 session_id=int(session_id),
                 current_question=current,
                 questions=questions,
+                allow_no_increment=is_editing,
             )
         except Exception as exc:
             logger.exception("skip_question failed: %s", exc)
@@ -136,6 +219,13 @@ async def handle_skip(message: Message, state: FSMContext) -> None:
         if result.is_last:
             await mark_completed(db, int(session_id))
             await maybe_notify_researcher_all_completed(db, campaign_id=int(campaign_id))
+            previous_for_next = None
+        elif result.next_question is not None:
+            previous_for_next = await get_existing_answer_text(
+                db, session_id=int(session_id), question_id=result.next_question.id
+            )
+        else:
+            previous_for_next = None
 
     # Если пропускали из LONG_ANSWER — сбросить накопленные чанки и
     # вернуться в IN_INTERVIEW (на случай продолжения интервью).
@@ -145,7 +235,12 @@ async def handle_skip(message: Message, state: FSMContext) -> None:
         await state.set_state(InterviewState.IN_INTERVIEW)
 
     await _send_next_or_complete(
-        message, state, result, questions, ack=messages.QUESTION_SKIPPED_ACCEPTED
+        message,
+        state,
+        result,
+        questions,
+        ack=messages.QUESTION_SKIPPED_ACCEPTED,
+        previous_answer_text=previous_for_next,
     )
 
 
@@ -183,6 +278,7 @@ async def _persist_and_advance(message: Message, state: FSMContext, text: str) -
     question_id = int(data[DATA_CURRENT_QUESTION_ID])
 
     async with open_session() as db:
+        from apps.api.db.models import InterviewSession
         from apps.api.db.repositories.sessions import fetch_campaign_script_questions
 
         fetched = await fetch_campaign_script_questions(db, campaign_id)
@@ -207,6 +303,14 @@ async def _persist_and_advance(message: Message, state: FSMContext, text: str) -
             return
 
         questions: list[Question] = list(script.questions)
+        current_index = next((i for i, q in enumerate(questions) if q.id == question_id), None)
+        # progress_count — высокая отметка «уже посчитанных» слотов. Если
+        # текущий индекс ниже неё, респондент вернулся через /back и сейчас
+        # правит ранее данный ответ (или впервые отвечает на ранее
+        # пропущенный вопрос).
+        session_obj = await db.get(InterviewSession, session_id)
+        progress_count = session_obj.progress_count if session_obj is not None else 0
+        is_editing = current_index is not None and current_index < progress_count
 
         try:
             result = await accept_answer(
@@ -215,6 +319,7 @@ async def _persist_and_advance(message: Message, state: FSMContext, text: str) -
                 question_id=question_id,
                 text=text,
                 questions=questions,
+                allow_update=is_editing,
             )
         except Exception as exc:
             logger.exception("accept_answer failed: %s", exc)
@@ -224,10 +329,25 @@ async def _persist_and_advance(message: Message, state: FSMContext, text: str) -
         if result.is_last:
             await mark_completed(db, session_id)
             await maybe_notify_researcher_all_completed(db, campaign_id=campaign_id)
+            previous_for_next = None
+        elif result.next_question is not None:
+            # При возврате на frontier после правки следующий вопрос может
+            # уже иметь сохранённый ответ — покажем его респонденту.
+            previous_for_next = await get_existing_answer_text(
+                db, session_id=session_id, question_id=result.next_question.id
+            )
+        else:
+            previous_for_next = None
 
     # Подтверждение (только после commit-а в accept_answer).
+    ack = messages.ANSWER_UPDATED_SHORT if is_editing else messages.ANSWER_ACCEPTED_SHORT
     await _send_next_or_complete(
-        message, state, result, questions, ack=messages.ANSWER_ACCEPTED_SHORT
+        message,
+        state,
+        result,
+        questions,
+        ack=ack,
+        previous_answer_text=previous_for_next,
     )
 
 
@@ -238,13 +358,18 @@ async def _send_next_or_complete(
     questions: list[Question],
     *,
     ack: str,
+    previous_answer_text: str | None = None,
 ) -> None:
     """После accept_answer/skip_question отправить следующий вопрос или
-    финальное сообщение. `ack` — подтверждение действия (принято/пропущено)."""
+    финальное сообщение. `ack` — подтверждение действия (принято/пропущено).
+    `previous_answer_text` — если следующий вопрос уже когда-то отвечался,
+    показываем сохранённый ответ перед текстом вопроса."""
     if not result.is_last and result.next_question is not None:
         index = next((i for i, q in enumerate(questions) if q.id == result.next_question.id), 0)
         await state.update_data({DATA_CURRENT_QUESTION_ID: result.next_question.id})
         await message.answer(ack)
+        if previous_answer_text is not None:
+            await message.answer(messages.PREVIOUS_ANSWER_PREFIX.format(text=previous_answer_text))
         await message.answer(format_question(result.next_question, index, len(questions)))
     else:
         await message.answer(messages.COMPLETED_MESSAGE)

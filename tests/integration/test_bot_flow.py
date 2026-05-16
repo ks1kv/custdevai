@@ -300,6 +300,178 @@ async def test_skip_question_refuses_required(db_session, seeded_running_campaig
 
 
 @pytest.mark.asyncio
+async def test_accept_answer_allow_update_overwrites_existing(
+    db_session, seeded_running_campaign
+) -> None:
+    """allow_update=True (после /back) перезаписывает текст ответа и НЕ
+    инкрементирует progress_count повторно."""
+    from sqlalchemy import select
+
+    cid = seeded_running_campaign["campaign_id"]
+    ctx = await begin_session(db_session, campaign_id=cid, telegram_user_id=77)
+    assert ctx is not None
+    qid = ctx.questions[0].id
+
+    # Первый раз — обычный forward
+    r1 = await accept_answer(
+        db_session,
+        session_id=ctx.session.id,
+        question_id=qid,
+        text="первый вариант",
+        questions=ctx.questions,
+    )
+    assert r1.inserted is True
+
+    sess = await db_session.get(InterviewSession, ctx.session.id)
+    assert sess is not None and sess.progress_count == 1
+
+    # /back возвращает на этот же вопрос, респондент переписывает ответ
+    r2 = await accept_answer(
+        db_session,
+        session_id=ctx.session.id,
+        question_id=qid,
+        text="ИСПРАВЛЕННЫЙ ответ",
+        questions=ctx.questions,
+        allow_update=True,
+    )
+    assert r2.inserted is False  # это правка, не новый слот
+
+    # progress_count не сдвинулся
+    sess = await db_session.get(InterviewSession, ctx.session.id)
+    assert sess is not None and sess.progress_count == 1
+
+    # В БД именно новый текст
+    rows = (
+        (await db_session.execute(select(Answer).where(Answer.question_id == qid))).scalars().all()
+    )
+    assert len(rows) == 1
+    assert rows[0].text == "ИСПРАВЛЕННЫЙ ответ"
+
+
+@pytest.mark.asyncio
+async def test_accept_answer_allow_update_inserts_when_no_prior(
+    db_session, seeded_running_campaign
+) -> None:
+    """allow_update=True над ранее пропущенным (но не отвеченным) вопросом
+    создаёт новую строку Answer."""
+    from sqlalchemy import select
+
+    from apps.api.db.models import Question
+    from apps.bot.services.interview_service import skip_question
+
+    cid = seeded_running_campaign["campaign_id"]
+    ctx = await begin_session(db_session, campaign_id=cid, telegram_user_id=78)
+    assert ctx is not None
+
+    # Делаем первый вопрос необязательным и пропускаем его.
+    first_q = ctx.questions[0]
+    first_q.is_required = False
+    await db_session.commit()
+    fresh = await db_session.get(Question, first_q.id)
+    assert fresh is not None
+    await skip_question(
+        db_session,
+        session_id=ctx.session.id,
+        current_question=fresh,
+        questions=ctx.questions,
+    )
+    # progress_count == 1, Answer на Q1 не было.
+    sess = await db_session.get(InterviewSession, ctx.session.id)
+    assert sess is not None and sess.progress_count == 1
+
+    # /back → правка Q1: теперь хотим записать ответ.
+    r = await accept_answer(
+        db_session,
+        session_id=ctx.session.id,
+        question_id=first_q.id,
+        text="теперь хочу ответить",
+        questions=ctx.questions,
+        allow_update=True,
+    )
+    # В edit-режиме inserted=False по семантике слотов (слот уже считался).
+    assert r.inserted is False
+
+    sess = await db_session.get(InterviewSession, ctx.session.id)
+    assert sess is not None and sess.progress_count == 1  # без изменений
+
+    rows = (
+        (await db_session.execute(select(Answer).where(Answer.session_id == ctx.session.id)))
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 1
+    assert rows[0].text == "теперь хочу ответить"
+
+
+@pytest.mark.asyncio
+async def test_get_existing_answer_text_returns_saved(db_session, seeded_running_campaign) -> None:
+    """get_existing_answer_text возвращает сохранённый текст / None."""
+    from apps.bot.services.interview_service import get_existing_answer_text
+
+    cid = seeded_running_campaign["campaign_id"]
+    ctx = await begin_session(db_session, campaign_id=cid, telegram_user_id=79)
+    assert ctx is not None
+    qid = ctx.questions[0].id
+
+    # До ответа — None.
+    assert (
+        await get_existing_answer_text(db_session, session_id=ctx.session.id, question_id=qid)
+        is None
+    )
+
+    await accept_answer(
+        db_session,
+        session_id=ctx.session.id,
+        question_id=qid,
+        text="мой ответ",
+        questions=ctx.questions,
+    )
+    got = await get_existing_answer_text(db_session, session_id=ctx.session.id, question_id=qid)
+    assert got == "мой ответ"
+
+
+@pytest.mark.asyncio
+async def test_skip_question_with_allow_no_increment_does_not_advance(
+    db_session, seeded_running_campaign
+) -> None:
+    """В режиме правки /skip не сдвигает progress_count."""
+    from apps.api.db.models import Question
+    from apps.bot.services.interview_service import skip_question
+
+    cid = seeded_running_campaign["campaign_id"]
+    ctx = await begin_session(db_session, campaign_id=cid, telegram_user_id=80)
+    assert ctx is not None
+    # Сделать первый вопрос необязательным.
+    first_q = ctx.questions[0]
+    first_q.is_required = False
+    await db_session.commit()
+    fresh = await db_session.get(Question, first_q.id)
+    assert fresh is not None
+
+    # forward-skip → progress_count = 1
+    await skip_question(
+        db_session,
+        session_id=ctx.session.id,
+        current_question=fresh,
+        questions=ctx.questions,
+    )
+    sess = await db_session.get(InterviewSession, ctx.session.id)
+    assert sess is not None and sess.progress_count == 1
+
+    # Имитируем «/back + /skip»: allow_no_increment=True не должно
+    # сдвинуть progress_count.
+    await skip_question(
+        db_session,
+        session_id=ctx.session.id,
+        current_question=fresh,
+        questions=ctx.questions,
+        allow_no_increment=True,
+    )
+    sess = await db_session.get(InterviewSession, ctx.session.id)
+    assert sess is not None and sess.progress_count == 1
+
+
+@pytest.mark.asyncio
 async def test_accept_answer_works_when_session_already_in_transaction(
     db_session, seeded_running_campaign
 ) -> None:

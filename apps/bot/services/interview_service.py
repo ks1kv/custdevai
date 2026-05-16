@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,15 +46,25 @@ async def accept_answer(
     question_id: int,
     text: str,
     questions: list[Question],
+    allow_update: bool = False,
 ) -> AnswerResult:
-    """ACID-транзакция INSERT answer + UPDATE sessions.progress_count (FR-DB-02).
+    """ACID-транзакция запись ответа + UPDATE sessions.progress_count (FR-DB-02).
 
-    Идемпотентность по UNIQUE(session_id, question_id) (FR-API-08): повторный
-    update от Telegram конфликтует и не порождает дубль; counter
-    инкрементируется только при реальном INSERT.
+    Два режима:
 
-    Подтверждение респонденту отправляется handler-ом ТОЛЬКО после успешного
-    commit() этой функции. При rollback handler покажет INTERNAL_ERROR.
+    `allow_update=False` (по умолчанию, forward-flow). Идемпотентность по
+    UNIQUE(session_id, question_id) (FR-API-08): повторный update от
+    Telegram конфликтует и не порождает дубль; progress_count
+    инкрементируется только при реальном INSERT-е.
+
+    `allow_update=True` (режим правки после /back). UPSERT: последний
+    отправленный текст становится текущим. progress_count НЕ трогаем —
+    это правка уже посчитанного слота. Handler должен выставлять
+    allow_update=True только при current_index < progress_count.
+
+    Подтверждение респонденту отправляется handler-ом ТОЛЬКО после
+    успешного commit() этой функции. При rollback handler покажет
+    INTERNAL_ERROR.
 
     Не открываем здесь явный `db.begin()` — в SQLAlchemy 2.x сессия уже
     находится в autobegin-состоянии после предыдущих `db.get(...)` из
@@ -64,43 +74,71 @@ async def accept_answer(
     autobegin кидает InvalidRequestError.
     """
     now = _utcnow()
-    stmt = (
-        pg_insert(Answer)
-        .values(
-            session_id=session_id,
-            question_id=question_id,
-            text=text,
-            answered_at=now,
-        )
-        .on_conflict_do_nothing(index_elements=["session_id", "question_id"])
-        .returning(Answer.id)
-    )
-    result = await db.execute(stmt)
-    inserted_id = result.scalar_one_or_none()
-    inserted = inserted_id is not None
 
-    if inserted:
-        await db.execute(
-            update(InterviewSession)
-            .where(InterviewSession.id == session_id)
+    if allow_update:
+        # UPSERT: текст всегда становится последним отправленным. Используем
+        # ON CONFLICT DO UPDATE, чтобы не делать отдельный SELECT и быть
+        # устойчивыми к гонкам с параллельным Telegram-retry.
+        upsert_stmt = (
+            pg_insert(Answer)
             .values(
-                progress_count=InterviewSession.progress_count + 1,
-                last_activity_at=now,
+                session_id=session_id,
+                question_id=question_id,
+                text=text,
+                answered_at=now,
+            )
+            .on_conflict_do_update(
+                index_elements=["session_id", "question_id"],
+                set_={"text": text, "answered_at": now},
             )
         )
-    else:
-        # Сообщение-дубль: counter не трогаем, но last_activity_at
-        # обновляем, чтобы 48-часовое окно считалось от последнего
-        # реального действия пользователя (FR-BOT-05).
+        await db.execute(upsert_stmt)
         await db.execute(
             update(InterviewSession)
             .where(InterviewSession.id == session_id)
             .values(last_activity_at=now)
         )
+        inserted = False  # в режиме правки слот уже был посчитан ранее
+    else:
+        stmt = (
+            pg_insert(Answer)
+            .values(
+                session_id=session_id,
+                question_id=question_id,
+                text=text,
+                answered_at=now,
+            )
+            .on_conflict_do_nothing(index_elements=["session_id", "question_id"])
+            .returning(Answer.id)
+        )
+        result = await db.execute(stmt)
+        inserted_id = result.scalar_one_or_none()
+        inserted = inserted_id is not None
+
+        if inserted:
+            await db.execute(
+                update(InterviewSession)
+                .where(InterviewSession.id == session_id)
+                .values(
+                    progress_count=InterviewSession.progress_count + 1,
+                    last_activity_at=now,
+                )
+            )
+        else:
+            # Сообщение-дубль: counter не трогаем, но last_activity_at
+            # обновляем, чтобы 48-часовое окно считалось от последнего
+            # реального действия пользователя (FR-BOT-05).
+            await db.execute(
+                update(InterviewSession)
+                .where(InterviewSession.id == session_id)
+                .values(last_activity_at=now)
+            )
+
     await db.commit()
 
     # После commit-а нужно решить: какой следующий вопрос отправлять.
-    # Перечитываем session с новым progress_count.
+    # Перечитываем session с новым progress_count (или прежним в режиме
+    # правки — тогда вернёмся на frontier, на тот вопрос, где были до /back).
     session = await db.get(InterviewSession, session_id)
     next_index = session.progress_count if session is not None else len(questions)
     is_last = next_index >= len(questions)
@@ -112,35 +150,61 @@ async def accept_answer(
     )
 
 
+async def get_existing_answer_text(
+    db: AsyncSession, *, session_id: int, question_id: int
+) -> str | None:
+    """Вернуть текст ранее сохранённого ответа на этот вопрос, если есть.
+
+    Нужен handler-у, чтобы при /back и при показе уже отвеченных вопросов
+    префиксить сообщение «Ваш предыдущий ответ: …».
+    """
+    return await db.scalar(
+        select(Answer.text).where(
+            Answer.session_id == session_id, Answer.question_id == question_id
+        )
+    )
+
+
 async def skip_question(
     db: AsyncSession,
     *,
     session_id: int,
     current_question: Question,
     questions: list[Question],
+    allow_no_increment: bool = False,
 ) -> AnswerResult:
-    """Пропустить необязательный вопрос: НЕ создаём Answer, только
-    инкрементируем progress_count, чтобы перейти к следующему.
+    """Пропустить необязательный вопрос.
+
+    `allow_no_increment=False` (forward-flow): инкрементируем progress_count,
+    Answer не пишем — слот считается завершённым «пропуском».
+
+    `allow_no_increment=True` (правка после /back): respondent на ранее
+    пройденном вопросе ввёл /skip; данные не трогаем (его прошлый ответ
+    или пропуск остаются), progress_count не сдвигается, только
+    last_activity_at. Возвращаемся на frontier.
 
     Поднимает ValueError, если current_question.is_required — handler
     обязан проверить is_required ДО вызова и показать пользователю
     QUESTION_REQUIRED_REJECT. ValueError тут — защита от пути в обход.
-
-    Так же, как accept_answer, не открывает явный `db.begin()` —
-    операция выполняется внутри autobegin-транзакции вызывающего, и
-    `db.commit()` её закрывает.
     """
     if current_question.is_required:
         raise ValueError("Cannot skip a required question")
     now = _utcnow()
-    await db.execute(
-        update(InterviewSession)
-        .where(InterviewSession.id == session_id)
-        .values(
-            progress_count=InterviewSession.progress_count + 1,
-            last_activity_at=now,
+    if allow_no_increment:
+        await db.execute(
+            update(InterviewSession)
+            .where(InterviewSession.id == session_id)
+            .values(last_activity_at=now)
         )
-    )
+    else:
+        await db.execute(
+            update(InterviewSession)
+            .where(InterviewSession.id == session_id)
+            .values(
+                progress_count=InterviewSession.progress_count + 1,
+                last_activity_at=now,
+            )
+        )
     await db.commit()
 
     session = await db.get(InterviewSession, session_id)
