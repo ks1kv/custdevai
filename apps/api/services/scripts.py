@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from sqlalchemy import exists, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.db.models import Question, Script
+from apps.api.db.models import Answer, Question, Script
 from apps.api.db.repositories.scripts import ScriptRepository
 from apps.api.errors import Conflict, NotFound
 from apps.api.schemas.script import QuestionIn, QuestionUpsert, ScriptCreate, ScriptUpdate
@@ -60,9 +62,49 @@ class ScriptService:
             script.title = payload.title
         if payload.description is not None:
             script.description = payload.description
-        await self._session.commit()
+        if payload.questions is not None:
+            await self._replace_questions(script, payload.questions)
+        try:
+            await self._session.commit()
+        except IntegrityError as exc:  # FK answers.question_id RESTRICT
+            await self._session.rollback()
+            raise Conflict(
+                "Невозможно изменить вопросы сценария: на них уже есть ответы респондентов."
+            ) from exc
         await self._session.refresh(script, attribute_names=["questions"])
         return script
+
+    async def _replace_questions(self, script: Script, new_questions: list[QuestionIn]) -> None:
+        """Полная замена вопросов сценария.
+
+        Если на хотя бы один существующий вопрос уже есть ответы — кидаем
+        409, не дожидаясь IntegrityError на commit (более понятное сообщение
+        и до COMMIT, чтобы транзакция не оставалась в aborted-состоянии).
+        """
+        has_answers = await self._session.scalar(
+            select(
+                exists().where(
+                    Answer.question_id.in_(
+                        select(Question.id).where(Question.script_id == script.id)
+                    )
+                )
+            )
+        )
+        if has_answers:
+            raise Conflict(
+                "Невозможно изменить вопросы сценария: на них уже есть ответы респондентов."
+            )
+        # cascade="all, delete-orphan" на Script.questions удалит старые
+        # вопросы при подмене коллекции.
+        script.questions = [
+            Question(
+                text=q.text,
+                order_index=idx + 1,
+                is_required=q.is_required,
+                hint_text=q.hint_text,
+            )
+            for idx, q in enumerate(new_questions)
+        ]
 
     async def delete(self, script_id: int, *, owner_id: int | None) -> None:
         script = await self.get(script_id, owner_id=owner_id)

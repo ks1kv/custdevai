@@ -59,3 +59,40 @@ async def test_get_unknown_script_returns_404_problem_details(client, seeded_adm
     r = await client.get("/api/v1/scripts/9999", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 404
     assert r.headers["content-type"].startswith("application/problem+json")
+
+
+@pytest.mark.asyncio
+async def test_patch_script_replaces_questions(client, seeded_admin) -> None:
+    """PATCH /scripts/{id} с полем questions полностью заменяет набор."""
+    token = await _login(client, seeded_admin["email"], seeded_admin["password"])
+    headers = {"Authorization": f"Bearer {token}"}
+
+    r = await client.post(
+        "/api/v1/scripts",
+        json={
+            "title": "S",
+            "questions": [
+                {"text": "Q1", "order_index": 1, "is_required": True},
+                {"text": "Q2", "order_index": 2, "is_required": True},
+            ],
+        },
+        headers=headers,
+    )
+    assert r.status_code == 200
+    sid = r.json()["id"]
+
+    r = await client.patch(
+        f"/api/v1/scripts/{sid}",
+        json={
+            "questions": [
+                {"text": "Q1-edited", "order_index": 1, "is_required": True},
+                {"text": "Q2-edited", "order_index": 2, "is_required": False},
+                {"text": "Q3-new", "order_index": 3, "is_required": True},
+            ],
+        },
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert [q["text"] for q in body["questions"]] == ["Q1-edited", "Q2-edited", "Q3-new"]
+    assert body["questions"][1]["is_required"] is False

@@ -32,6 +32,10 @@ class ScriptCreate(BaseModel):
 class ScriptUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=4096)
+    # Если передан — полностью заменяет набор вопросов сценария. Запрос
+    # отклоняется (409), если хоть один существующий вопрос уже имеет
+    # ответы (FK answers.question_id ON DELETE RESTRICT).
+    questions: list[QuestionIn] | None = Field(default=None)
 
 
 class ScriptOut(BaseModel):
