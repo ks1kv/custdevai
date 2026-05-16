@@ -39,6 +39,15 @@ celery_app.conf.update(
     task_always_eager=os.environ.get("CELERY_TASK_ALWAYS_EAGER", "").lower()
     in {"1", "true", "yes"},
     task_eager_propagates=True,
+    # acks_late=True — задача подтверждается только после успешного
+    # завершения. Если воркер убили SIGKILL (OOM), задача остаётся в
+    # очереди и будет подхвачена другим воркером после рестарта.
+    # Без этого падение воркера на CVE-2025-32434 в transformers роняло
+    # таску без следа, и кампания залипала в RUNNING.
+    task_acks_late=True,
+    # Воркер забирает по 1 задаче за раз — без префетча, чтобы упавшая
+    # ML-таска не утянула за собой соседние из буфера.
+    worker_prefetch_multiplier=1,
     beat_schedule={
         # FR-DB-08 + NFR-REL-03: pg_dump раз в сутки в 03:00 UTC.
         "backup-database-daily": {
@@ -49,6 +58,12 @@ celery_app.conf.update(
         "sessions-sweeper": {
             "task": "sessions.sweep_inactive",
             "schedule": 900.0,
+        },
+        # FR-API-04: каждые 5 минут проверяем, нет ли «зависшего» RUNNING-
+        # анализа (после OOM/SIGKILL воркера), переставляем такие в FAILED.
+        "ml-sweep-stuck-running": {
+            "task": "ml.sweep_stuck_running",
+            "schedule": 300.0,
         },
     },
 )
