@@ -20,7 +20,9 @@ import {
   getAnalysisStatus,
   getCampaign,
   startAnalysis,
+  updateCampaign,
 } from "@/api/campaigns";
+import type { CampaignStatus } from "@/api/types";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Spinner } from "@/components/ui/Spinner";
@@ -59,6 +61,30 @@ export function CampaignDetailPage() {
     },
   });
 
+  const [transitionError, setTransitionError] = useState<string | null>(null);
+
+  const transition = useMutation({
+    mutationFn: (status: CampaignStatus) => updateCampaign(campaignId, { status }),
+    onSuccess: () => {
+      setTransitionError(null);
+      queryClient.invalidateQueries({ queryKey: ["campaign", campaignId] });
+      queryClient.invalidateQueries({ queryKey: ["campaigns"] });
+    },
+    onError: (err) => {
+      setTransitionError(
+        err instanceof ApiError
+          ? err.problem.detail || err.problem.title
+          : t.errors.generic,
+      );
+    },
+  });
+
+  const handleTransition = (next: CampaignStatus, confirmMsg?: string) => {
+    if (confirmMsg && !window.confirm(confirmMsg)) return;
+    setTransitionError(null);
+    transition.mutate(next);
+  };
+
   if (isLoading || !campaign) return <Spinner />;
 
   return (
@@ -74,10 +100,22 @@ export function CampaignDetailPage() {
             </span>
           </div>
         </div>
-        <Link to={`/campaigns/${campaignId}/reports`}>
-          <Button variant="secondary">{t.campaign.tabs.reports}</Button>
-        </Link>
+        <div className="toolbar">
+          <StatusTransitions
+            current={campaign.status}
+            pending={transition.isPending}
+            onTransition={handleTransition}
+          />
+          <Link to={`/campaigns/${campaignId}/reports`}>
+            <Button variant="secondary">{t.campaign.tabs.reports}</Button>
+          </Link>
+        </div>
       </div>
+      {transitionError && (
+        <div className="danger" style={{ marginBottom: 12 }}>
+          {transitionError}
+        </div>
+      )}
 
       <div className="tabs">
         {(["overview", "transcripts", "sentiment", "topics", "reports"] as const).map(
@@ -153,5 +191,74 @@ export function CampaignDetailPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+interface StatusTransitionsProps {
+  current: CampaignStatus;
+  pending: boolean;
+  onTransition: (next: CampaignStatus, confirm?: string) => void;
+}
+
+// Зеркалит apps/api/services/campaigns.py:_ALLOWED_TRANSITIONS — если там
+// изменится список разрешённых переходов, надо обновить и здесь.
+const CONFIRM_COMPLETE =
+  "Завершить кампанию? Сбор новых ответов остановится; этот переход необратим.";
+
+function StatusTransitions({ current, pending, onTransition }: StatusTransitionsProps) {
+  if (current === "completed") {
+    return <span className="muted">Кампания завершена</span>;
+  }
+  return (
+    <>
+      {current === "draft" && (
+        <Button
+          onClick={() => onTransition("running")}
+          loading={pending}
+          size="sm"
+        >
+          Запустить кампанию
+        </Button>
+      )}
+      {current === "running" && (
+        <>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => onTransition("paused")}
+            loading={pending}
+          >
+            Пауза
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={() => onTransition("completed", CONFIRM_COMPLETE)}
+            loading={pending}
+          >
+            Завершить
+          </Button>
+        </>
+      )}
+      {current === "paused" && (
+        <>
+          <Button
+            size="sm"
+            onClick={() => onTransition("running")}
+            loading={pending}
+          >
+            Возобновить
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={() => onTransition("completed", CONFIRM_COMPLETE)}
+            loading={pending}
+          >
+            Завершить
+          </Button>
+        </>
+      )}
+    </>
   );
 }
