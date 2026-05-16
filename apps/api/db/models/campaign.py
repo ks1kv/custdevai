@@ -95,6 +95,7 @@ class Campaign(Base, TimestampMixin):
             CampaignAnalysisStatus,
             name="campaign_analysis_status",
             create_constraint=True,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
         ),
         nullable=False,
         default=CampaignAnalysisStatus.PENDING,

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.db.models import Question, Script
+from apps.api.db.models import Answer, Question, Script
 from apps.api.db.repositories.scripts import ScriptRepository
 from apps.api.errors import Conflict, NotFound
 from apps.api.schemas.script import QuestionIn, QuestionUpsert, ScriptCreate, ScriptUpdate
@@ -60,9 +62,54 @@ class ScriptService:
             script.title = payload.title
         if payload.description is not None:
             script.description = payload.description
-        await self._session.commit()
+        if payload.questions is not None:
+            await self._replace_questions(script, payload.questions)
+        try:
+            await self._session.commit()
+        except IntegrityError as exc:  # FK answers.question_id RESTRICT (гонка)
+            await self._session.rollback()
+            raise Conflict(
+                "Невозможно изменить вопросы сценария: на них уже есть ответы респондентов."
+            ) from exc
         await self._session.refresh(script, attribute_names=["questions"])
         return script
+
+    async def _replace_questions(self, script: Script, new_questions: list[QuestionIn]) -> None:
+        """Полная замена вопросов сценария.
+
+        Если на хотя бы один существующий вопрос уже есть ответы — кидаем
+        409, не дожидаясь IntegrityError на commit (более понятное сообщение
+        и до COMMIT, чтобы транзакция не оставалась в aborted-состоянии).
+        """
+        # Прямой JOIN answers ↔ questions с LIMIT 1 — простой и
+        # переносимый между PostgreSQL и SQLite (на нём гоняет CI).
+        stmt = (
+            select(Answer.id)
+            .join(Question, Question.id == Answer.question_id)
+            .where(Question.script_id == script.id)
+            .limit(1)
+        )
+        first_answer_id = (await self._session.execute(stmt)).scalar()
+        if first_answer_id is not None:
+            raise Conflict(
+                "Невозможно изменить вопросы сценария: на них уже есть ответы респондентов."
+            )
+        # Двухфазная замена: сначала FLUSH-им удаление старых вопросов через
+        # orphan-removal, и только потом добавляем новые. Иначе INSERT-ы
+        # новых вопросов улетают в одну транзакцию с DELETE-ами старых и
+        # ломают UNIQUE(script_id, order_index) — SQLAlchemy не гарантирует
+        # порядок DML внутри одного flush.
+        script.questions.clear()
+        await self._session.flush()
+        script.questions.extend(
+            Question(
+                text=q.text,
+                order_index=idx + 1,
+                is_required=q.is_required,
+                hint_text=q.hint_text,
+            )
+            for idx, q in enumerate(new_questions)
+        )
 
     async def delete(self, script_id: int, *, owner_id: int | None) -> None:
         script = await self.get(script_id, owner_id=owner_id)

@@ -87,7 +87,8 @@ export function ScriptBuilderPage() {
     },
     onSuccess: (s) => {
       queryClient.invalidateQueries({ queryKey: ["scripts"] });
-      navigate(`/scripts/${s.id}`);
+      queryClient.invalidateQueries({ queryKey: ["script", s.id] });
+      navigate("/scripts");
     },
     onError: (err) => {
       if (err instanceof ApiError) {
