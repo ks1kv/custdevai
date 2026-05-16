@@ -228,6 +228,41 @@ async def test_accept_answer_idempotent_on_duplicate(db_session, seeded_running_
     assert len(answers) == 1  # дубля нет
     assert answers[0].text == "первый"
 
+
+@pytest.mark.asyncio
+async def test_accept_answer_works_when_session_already_in_transaction(
+    db_session, seeded_running_campaign
+) -> None:
+    """Регрессия: handler-flow в боте делает fetch_campaign_script_questions
+    (db.get → autobegin) и сразу после — accept_answer. Раньше внутри
+    accept_answer был лишний `async with db.begin():`, который падал
+    с InvalidRequestError на active-транзакции и отдавал пользователю
+    «Не удалось сохранить ответ.»
+    """
+    from apps.api.db.repositories.sessions import fetch_campaign_script_questions
+
+    cid = seeded_running_campaign["campaign_id"]
+    ctx = await begin_session(db_session, campaign_id=cid, telegram_user_id=99)
+    assert ctx is not None
+    sid = ctx.session.id
+    qid = ctx.questions[0].id
+
+    # Имитируем handler: первый db.get запускает autobegin.
+    fetched = await fetch_campaign_script_questions(db_session, cid)
+    assert fetched is not None
+    assert db_session.in_transaction()
+
+    # accept_answer не должен бросать InvalidRequestError, несмотря
+    # на уже активную транзакцию сессии.
+    result = await accept_answer(
+        db_session,
+        session_id=sid,
+        question_id=qid,
+        text="ответ из handler-flow",
+        questions=ctx.questions,
+    )
+    assert result.inserted is True
+
     # progress_count не вырос на дубле — увеличился только один раз
     fresh = await db_session.get(InterviewSession, ctx.session.id)
     assert fresh is not None and fresh.progress_count == 1
