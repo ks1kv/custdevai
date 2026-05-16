@@ -37,6 +37,7 @@ from apps.api.db.models import Campaign, SessionStatus
 from apps.api.db.repositories.campaign_analysis import (
     mark_completed,
     mark_failed,
+    release_running_for_retry,
     try_acquire_running,
 )
 from apps.api.db.repositories.ml_results import (
@@ -215,14 +216,64 @@ async def _analyze_campaign_async(campaign_id: int, retry_attempt: int) -> dict[
         }
 
     except Exception as exc:
-        # Если ретраи исчерпаны — фиксируем failed; иначе Celery сам
-        # повторит вызов через autoretry_for.
+        # Если ретраи исчерпаны — фиксируем failed; иначе освобождаем
+        # RUNNING → PENDING, чтобы Celery-retry смог re-acquire статус.
+        # Без release_running_for_retry следующий attempt видел бы RUNNING
+        # (выставленный нами же) и `try_acquire_running` → False → skipped
+        # как успех, и кампания залипала бы в RUNNING навсегда.
         if retry_attempt >= 2:  # последний (3-й) запуск
             try:
                 async with sessionmaker() as db:
                     await mark_failed(db, campaign_id, error=str(exc))
             except Exception:
                 logger.exception("mark_failed itself failed for campaign_id=%s", campaign_id)
+        else:
+            try:
+                async with sessionmaker() as db:
+                    released = await release_running_for_retry(db, campaign_id)
+                logger.info(
+                    "ml_pipeline_released_for_retry",
+                    extra={
+                        "campaign_id": campaign_id,
+                        "retry_attempt": retry_attempt,
+                        "released": released,
+                    },
+                )
+            except Exception:
+                logger.exception("release_running_for_retry failed for campaign_id=%s", campaign_id)
         raise
+    finally:
+        await engine.dispose()
+
+
+@celery_app.task(name="ml.sweep_stuck_running")
+def sweep_stuck_running_task() -> dict[str, Any]:
+    """Periodic-таска: пометить «зависшие» RUNNING-кампании как FAILED.
+
+    Запускается из celery beat. Threshold берётся из настроек и подобран
+    с запасом относительно NFR-PRF-04 (≤10 минут на 200 сессий).
+    """
+    return asyncio.run(_sweep_stuck_running_async())
+
+
+async def _sweep_stuck_running_async() -> dict[str, Any]:
+    from datetime import timedelta
+
+    from apps.api.db.repositories.campaign_analysis import sweep_stuck_running
+
+    settings = get_settings()
+    engine = create_async_engine(settings.effective_database_url, future=True)
+    sessionmaker = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
+    try:
+        async with sessionmaker() as db:
+            swept = await sweep_stuck_running(
+                db, older_than=timedelta(minutes=settings.ml_stuck_running_minutes)
+            )
+        if swept:
+            logger.warning(
+                "ml_pipeline_swept_stuck",
+                extra={"campaign_ids": swept, "count": len(swept)},
+            )
+        return {"swept": len(swept), "campaign_ids": swept}
     finally:
         await engine.dispose()

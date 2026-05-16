@@ -92,6 +92,10 @@ class Settings(BaseSettings):
     topic_random_seed: int = 42
     ml_model_cache_dir: str = "/models"
     transformers_offline: bool = False
+    # Сколько минут позволяем кампании быть в analysis_status=RUNNING до
+    # того, как periodic-таска ml.sweep_stuck_running перепоставит её в
+    # FAILED. Запас относительно NFR-PRF-04 (≤10 мин на 200 сессий).
+    ml_stuck_running_minutes: int = Field(default=20, ge=5, le=240)
 
     # --- Celery (FR-API-04) -------------------------------------------------
     celery_broker_url: str = ""

@@ -300,6 +300,81 @@ async def test_mark_failed_stores_truncated_error(db_session, seeded_campaign_wi
 
 
 @pytest.mark.asyncio
+async def test_release_running_for_retry_allows_reacquire(
+    db_session, seeded_campaign_with_answers
+) -> None:
+    """release_running_for_retry возвращает RUNNING → PENDING и снимает
+    залипание, чтобы следующий retry мог try_acquire_running."""
+    from apps.api.db.repositories.campaign_analysis import release_running_for_retry
+
+    cid = seeded_campaign_with_answers["campaign_id"]
+    # 1. Захватываем RUNNING как обычно.
+    assert await try_acquire_running(db_session, cid) is True
+    # 2. Повторный acquire не проходит — статус уже RUNNING.
+    assert await try_acquire_running(db_session, cid) is False
+    # 3. Освобождаем для retry.
+    assert await release_running_for_retry(db_session, cid) is True
+    fresh = await db_session.get(Campaign, cid)
+    assert fresh is not None
+    assert fresh.analysis_status == CampaignAnalysisStatus.PENDING
+    assert fresh.analysis_started_at is None
+    # 4. Теперь acquire снова проходит.
+    assert await try_acquire_running(db_session, cid) is True
+
+    # 5. Если статус не RUNNING — release_running_for_retry — no-op.
+    await mark_completed(db_session, cid)
+    assert await release_running_for_retry(db_session, cid) is False
+
+
+@pytest.mark.asyncio
+async def test_sweep_stuck_running_marks_old_as_failed(
+    db_session, seeded_campaign_with_answers
+) -> None:
+    """sweep_stuck_running переводит зависшие RUNNING (started_at > N мин назад)
+    в FAILED; повторный вызов — no-op."""
+    from datetime import datetime, timedelta, timezone
+
+    from apps.api.db.repositories.campaign_analysis import sweep_stuck_running
+
+    cid = seeded_campaign_with_answers["campaign_id"]
+    assert await try_acquire_running(db_session, cid) is True
+
+    fresh = await db_session.get(Campaign, cid)
+    assert fresh is not None
+    fresh.analysis_started_at = datetime.now(tz=timezone.utc).replace(tzinfo=None) - timedelta(
+        minutes=30
+    )
+    await db_session.commit()
+
+    swept = await sweep_stuck_running(db_session, older_than=timedelta(minutes=20))
+    assert swept == [cid]
+    refreshed = await db_session.get(Campaign, cid)
+    assert refreshed is not None
+    assert refreshed.analysis_status == CampaignAnalysisStatus.FAILED
+    assert refreshed.analysis_error and "прерван" in refreshed.analysis_error
+
+    again = await sweep_stuck_running(db_session, older_than=timedelta(minutes=20))
+    assert again == []
+
+
+@pytest.mark.asyncio
+async def test_sweep_stuck_running_skips_fresh(db_session, seeded_campaign_with_answers) -> None:
+    """Свежий RUNNING (started_at = сейчас) не должен попадать в зачистку."""
+    from datetime import timedelta
+
+    from apps.api.db.repositories.campaign_analysis import sweep_stuck_running
+
+    cid = seeded_campaign_with_answers["campaign_id"]
+    assert await try_acquire_running(db_session, cid) is True
+
+    swept = await sweep_stuck_running(db_session, older_than=timedelta(minutes=20))
+    assert swept == []
+    fresh = await db_session.get(Campaign, cid)
+    assert fresh is not None
+    assert fresh.analysis_status == CampaignAnalysisStatus.RUNNING
+
+
+@pytest.mark.asyncio
 async def test_language_error_skipped_in_sentiment_results(
     db_session, seeded_campaign_with_answers, settings
 ) -> None:
