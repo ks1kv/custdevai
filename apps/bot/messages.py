@@ -46,6 +46,18 @@ ANSWER_ACCEPTED_SHORT = "✓ Принято."
 
 QUESTION_SKIPPED_ACCEPTED = "↷ Вопрос пропущен."
 
+ANSWER_UPDATED_SHORT = "✎ Ответ обновлён."
+
+PREVIOUS_ANSWER_PREFIX = "Ваш предыдущий ответ: «{text}»"
+
+ALREADY_AT_FIRST_QUESTION = (
+    "Это первый вопрос — возвращаться некуда. Чтобы прервать интервью, отправьте /stop."
+)
+
+BACK_OUTSIDE_INTERVIEW = (
+    "Команда /back работает только во время интервью. Откройте ссылку-приглашение, чтобы начать."
+)
+
 QUESTION_REQUIRED_REJECT = (
     "Этот вопрос обязательный, его нельзя пропустить — ответьте, пожалуйста, текстом."
 )

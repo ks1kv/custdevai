@@ -28,6 +28,10 @@ def test_static_messages_are_russian() -> None:
         "QUESTION_SKIPPED_ACCEPTED",
         "QUESTION_REQUIRED_REJECT",
         "SKIP_OUTSIDE_INTERVIEW",
+        "ANSWER_UPDATED_SHORT",
+        "PREVIOUS_ANSWER_PREFIX",
+        "ALREADY_AT_FIRST_QUESTION",
+        "BACK_OUTSIDE_INTERVIEW",
     ):
         msg = getattr(messages, name)
         assert isinstance(msg, str)
