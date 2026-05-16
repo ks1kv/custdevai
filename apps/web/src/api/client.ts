@@ -17,8 +17,19 @@ export class ApiError extends Error {
   }
 }
 
+// В production SPA и API живут на одном origin: nginx (web-контейнер)
+// проксирует /api/* на FastAPI. Поэтому по умолчанию API_BASE пустой —
+// все вызовы становятся same-origin относительными путями /api/v1/...
+// Для локального dev (Vite на :5173, API на :8000) задаётся через .env:
+//   VITE_API_BASE_URL=http://localhost:8000
 const API_BASE = (import.meta as unknown as { env: { VITE_API_BASE_URL?: string } })
-  .env.VITE_API_BASE_URL ?? "http://localhost:8000";
+  .env.VITE_API_BASE_URL ?? "";
+
+function buildUrl(path: string): URL {
+  // Если API_BASE пустой — same-origin: используем window.location.origin
+  // как базу, чтобы new URL() не упал на относительном пути.
+  return API_BASE ? new URL(`${API_BASE}${path}`) : new URL(path, window.location.origin);
+}
 
 interface RequestOptions {
   method?: string;
@@ -32,7 +43,7 @@ export async function apiRequest<T>(
   options: RequestOptions = {},
 ): Promise<T> {
   const { method = "GET", body, query, signal } = options;
-  const url = new URL(`${API_BASE}${path}`);
+  const url = buildUrl(path);
   if (query) {
     for (const [k, v] of Object.entries(query)) {
       if (v === undefined) continue;
@@ -76,7 +87,7 @@ export async function apiRequest<T>(
 
 export async function apiBlob(path: string, options: RequestOptions = {}): Promise<Blob> {
   const { method = "GET", query, signal } = options;
-  const url = new URL(`${API_BASE}${path}`);
+  const url = buildUrl(path);
   if (query) {
     for (const [k, v] of Object.entries(query)) {
       if (v === undefined) continue;
