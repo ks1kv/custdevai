@@ -66,8 +66,6 @@ class TestSessionToPseudonym:
         # На 10 000 разных хешей псевдонимы покрывают значительную часть
         # 0000–9999 пространства (≈63% по теории шаров-урн).
         salt = b"\x00" * 32
-        pseudonyms = {
-            session_to_pseudonym(_hash(i, salt)) for i in range(10_000)
-        }
+        pseudonyms = {session_to_pseudonym(_hash(i, salt)) for i in range(10_000)}
         # Эмпирически ≈6300; даём запас от 5500 до 7100.
         assert 5500 <= len(pseudonyms) <= 7100
