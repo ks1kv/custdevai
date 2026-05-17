@@ -19,16 +19,25 @@ mkdir -p var/load var/dr var/cache
 **Запуск pytest внутри worker-контейнера.** Production-образ
 `docker/worker.Dockerfile` копирует только `apps/`, без `tests/` и без
 write-доступа к `/app`. Поэтому acceptance-тест запускается с
-смонтированным репо через `docker compose run --rm`:
+примонтированным репо через helper-скрипт `scripts/worker-run.sh`. Он
+поднимает одноразовый worker-контейнер с read-only монтированием
+`tests/` и `pyproject.toml`:
 
 ```bash
-# Алиас для всех команд acceptance-замера ниже.
-WORKER_RUN="docker compose $COMPOSE_FILES run --rm \
-    -v $(pwd)/tests:/app/tests:ro \
-    -v $(pwd)/pyproject.toml:/app/pyproject.toml:ro \
-    -e PYTEST_CACHE_DIR=/tmp/.pytest_cache \
-    worker"
+# Один раз убедиться, что скрипт исполняемый.
+chmod +x scripts/worker-run.sh
+
+# Использование: COMPOSE_FILES уже экспортирован выше.
+./scripts/worker-run.sh pytest -m ml \
+    tests/ml/test_sentiment_quality.py \
+    -p no:cacheprovider -v
 ```
+
+> Раньше runbook предлагал многострочный `WORKER_RUN="docker compose ..."`
+> алиас. При copy-paste из markdown в shell он часто склеивается с
+> соседними строками и переменная остаётся пустой → `$WORKER_RUN pytest`
+> выполняется на хосте как просто `pytest`. Helper-скрипт устраняет
+> ловушку.
 
 Дальше — пять блоков. Каждый замыкает один раздел в pre-defense
 чек-листе.
@@ -63,7 +72,7 @@ export COMPOSE_FILES="-f docker-compose.yml -f docker-compose.prod.yml"
 acceptance-тестом, если `rusentne_2023_holdout.json` ещё не создан.
 
 ```bash
-$WORKER_RUN pytest -m ml \
+./scripts/worker-run.sh pytest -m ml \
     tests/ml/test_sentiment_quality.py::test_sentiment_meets_quality_targets \
     -p no:cacheprovider -v -s
 ```
@@ -112,10 +121,11 @@ docker compose $COMPOSE_FILES restart api worker bot
 ### 1.4. Acceptance-замер (FR-SENT-07 ≥ 0.75 / ≥ 0.73)
 
 ```bash
-$WORKER_RUN env SENTIMENT_ASSERT_FR_07=true \
-        SENTIMENT_MODEL_PATH=/models/rubert-finetuned \
-        SENTIMENT_HOLDOUT_PATH=/models/rubert-finetuned/holdout.json \
-        pytest -m ml tests/ml/test_sentiment_quality.py \
+env SENTIMENT_ASSERT_FR_07=true \
+    SENTIMENT_MODEL_PATH=/models/rubert-finetuned \
+    SENTIMENT_HOLDOUT_PATH=/models/rubert-finetuned/holdout.json \
+    ./scripts/worker-run.sh pytest -m ml \
+        tests/ml/test_sentiment_quality.py \
         -p no:cacheprovider -v
 ```
 
