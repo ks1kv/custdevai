@@ -32,7 +32,7 @@ def session_to_pseudonym(telegram_id_hash: bytes) -> str:
     Raises:
         ValueError: если хеш короче 4 байт (битый или подменён).
     """
-    if not isinstance(telegram_id_hash, (bytes, bytearray, memoryview)):
+    if not isinstance(telegram_id_hash, bytes | bytearray | memoryview):
         raise TypeError("telegram_id_hash должен быть bytes-like")
     if len(telegram_id_hash) < _PSEUDONYM_HASH_PREFIX_BYTES:
         raise ValueError(
