@@ -71,7 +71,11 @@ dependencies = [
 
 # Heavy ML stack — install only on machines that run inference (worker, training)
 ml = [
-    "torch>=2.2,<2.6",
+    # >=2.6 обязательно из-за CVE-2025-32434: новый transformers блокирует
+    # torch.load на старых, и RuBERT (pytorch_model.bin) не загружается.
+    # Upper bound не ставим, чтобы не давать pip-resolver-у повод
+    # переустановить torch с дефолтного PyPI (там CUDA-wheels +3 GB).
+    "torch>=2.6",
     "transformers>=4.38,<5.0",
     "sentence-transformers>=2.5,<4.0",
     "bertopic>=0.16,<0.18",

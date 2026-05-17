@@ -22,18 +22,27 @@ RUN apt-get update \
 
 COPY pyproject.toml README.md /app/
 COPY apps /app/apps
-# CPU-only torch ставится отдельно из официального PyTorch CPU-индекса.
-# Это критично для production без GPU: дефолтные wheels тянут nvidia-cublas,
-# nvidia-cudnn, nvidia-cufft и пр. — суммарно ~3 GB бесполезного балласта,
-# из-за которого билд падал на 80 GB VPS с "No space left on device".
+# CPU-only torch + остальной ml-стек ставятся ОДНОЙ командой, и оба
+# индекса доступны pip-resolver-у с самого начала. CPU-индекс — primary,
+# PyPI — extra: pip предпочтёт CPU wheel (2.6.x+cpu) для torch, а
+# для остальных пакетов пойдёт на PyPI.
+#
+# Почему в один шаг: с раздельными `pip install` второй вызов не знал бы
+# про CPU-индекс. Если pyproject.toml-constraint или транзитивные deps
+# когда-нибудь заставят pip-resolver переустановить torch, он подтянет
+# дефолтный wheel с PyPI вместе с nvidia-cublas/cudnn/cufft (~3 GB
+# CUDA-балласта), и сборка падает на VPS с "No space left on device".
 #
 # Нижняя граница 2.6 — обязательна. transformers с CVE-2025-32434 блокирует
 # `torch.load` на старых версиях, и загрузка checkpoint-ов с pytorch_model.bin
 # (как у DeepPavlov/rubert-base-cased) падает с ValueError. См.
 # https://nvd.nist.gov/vuln/detail/CVE-2025-32434.
 RUN pip install --upgrade pip \
- && pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.6" \
- && pip install -e ".[ml,dev]"
+ && pip install \
+      --index-url https://download.pytorch.org/whl/cpu \
+      --extra-index-url https://pypi.org/simple/ \
+      "torch>=2.6" \
+      -e ".[ml,dev]"
 
 # ---- Runtime stage ---------------------------------------------------------
 FROM python:3.11-slim AS runtime
