@@ -44,15 +44,21 @@ def _load_holdout() -> list[tuple[str, SentimentLabel]]:
     """Загрузить контрольную выборку.
 
     Приоритет:
-        1. `rusentne_2023_holdout.json` — реальный stratified holdout
-           из training-прогона (≥ 200, FR-SENT-07 acceptance).
-        2. `sentiment_fallback_holdout.json` — ручная размеченная
-           выборка 200+ русских фраз. Используется до прогона
-           fine-tune (например, для baseline-замера blanchefort).
-        3. In-line `LABELED_EXAMPLES` (24 примера) — последний резерв
-           для самого быстрого smoke без обоих JSON-файлов.
+        0. ENV `SENTIMENT_HOLDOUT_PATH` — явный путь (используется на
+           VPS, когда training-скрипт записал holdout в /models/...).
+        1. `tests/ml/data/rusentne_2023_holdout.json` — historic путь
+           для dev-окружения с примонтированным репо.
+        2. `tests/ml/data/sentiment_fallback_holdout.json` — ручная
+           размеченная выборка 200+ русских фраз; используется до
+           прогона fine-tune (baseline-замер blanchefort).
+        3. In-line `LABELED_EXAMPLES` (24 примера) — последний резерв.
     """
-    for path in (_HOLDOUT_PATH, _FALLBACK_HOLDOUT_PATH):
+    candidates: list[Path] = []
+    env_path = os.environ.get("SENTIMENT_HOLDOUT_PATH")
+    if env_path:
+        candidates.append(Path(env_path))
+    candidates.extend([_HOLDOUT_PATH, _FALLBACK_HOLDOUT_PATH])
+    for path in candidates:
         if path.is_file():
             rows = json.loads(path.read_text(encoding="utf-8"))
             return [(r["text"], _LABEL_MAP[r["label"]]) for r in rows]

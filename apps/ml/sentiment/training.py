@@ -67,8 +67,17 @@ class TrainingConfig:
     holdout_min_size: int = 200
     holdout_fraction: float = 0.1
     train_subsample: int | None = None  # None = весь датасет; integer = top-N (для smoke-теста)
-    holdout_path: Path = Path("tests/ml/data/rusentne_2023_holdout.json")
+    # Дефолт = рядом с весами модели. Так гарантированно writable путь и
+    # holdout живёт вместе с моделью, к которой относится. Acceptance-тест
+    # подхватит его через переменную окружения SENTIMENT_HOLDOUT_PATH.
+    # Историческое значение `tests/ml/data/rusentne_2023_holdout.json`
+    # годится только для dev-окружения, где репо смонтирован в /app.
+    holdout_path: Path | None = None
     save_metrics_to: Path | None = None
+
+    def __post_init__(self) -> None:
+        if self.holdout_path is None:
+            self.holdout_path = self.output_dir / "holdout.json"
 
 
 @dataclass
@@ -339,6 +348,12 @@ def _build_argparser() -> argparse.ArgumentParser:
     p.add_argument(
         "--train-subsample", type=int, default=None, help="Smoke-режим: ограничить N примеров"
     )
+    p.add_argument(
+        "--holdout-path",
+        type=Path,
+        default=None,
+        help="Куда записать stratified holdout (по умолчанию <output>/holdout.json)",
+    )
     return p
 
 
@@ -355,6 +370,7 @@ def main() -> int:
         seed=args.seed,
         max_length=args.max_length,
         train_subsample=args.train_subsample,
+        holdout_path=args.holdout_path,
     )
     metrics = run_training(cfg)
     print(json.dumps(asdict(metrics), ensure_ascii=False, indent=2))
