@@ -80,6 +80,7 @@ class AuthService:
             access_token=access,
             refresh_token=refresh,
             must_change_password=user.must_change_password,
+            expires_in=self._settings.jwt_access_token_ttl_minutes * 60,
         )
 
     async def refresh(self, refresh_token: str) -> TokenPair:
@@ -107,7 +108,11 @@ class AuthService:
             ttl_seconds=self._settings.jwt_refresh_token_ttl_days * 86400,
         )
         await self._session.commit()
-        return TokenPair(access_token=access, refresh_token=refresh)
+        return TokenPair(
+            access_token=access,
+            refresh_token=refresh,
+            expires_in=self._settings.jwt_access_token_ttl_minutes * 60,
+        )
 
     async def logout(
         self,

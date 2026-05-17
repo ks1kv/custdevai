@@ -19,6 +19,10 @@ export interface TokenPair {
   refresh_token: string;
   token_type: string;
   must_change_password: boolean;
+  // TTL access-токена в секундах. Используется AuthContext для запуска
+  // проактивного refresh-таймера до истечения, чтобы пользователь не
+  // выпадал из сессии через 15 минут.
+  expires_in: number;
 }
 
 export interface UserOut {

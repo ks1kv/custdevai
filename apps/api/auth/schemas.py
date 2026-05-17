@@ -28,3 +28,6 @@ class TokenPair(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     must_change_password: bool = False
+    # TTL access-токена в секундах. Нужен SPA для проактивного refresh
+    # (запускается за минуту до истечения, FR-AUTH-04).
+    expires_in: int = 0
