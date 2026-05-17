@@ -6,6 +6,30 @@
 работает: `docker compose ps` показывает `api`, `worker`, `bot`,
 `postgres`, `redis`, `web` в состоянии `healthy`.
 
+**Однократная подготовка** (выполнить один раз перед началом):
+
+```bash
+# Каталог для логов команд из этого runbook'а.
+sudo mkdir -p /var/log/custdevai && sudo chown "$USER:$USER" /var/log/custdevai
+
+# Локальный каталог для нагрузочных и DR-артефактов.
+mkdir -p var/load var/dr var/cache
+```
+
+**Запуск pytest внутри worker-контейнера.** Production-образ
+`docker/worker.Dockerfile` копирует только `apps/`, без `tests/` и без
+write-доступа к `/app`. Поэтому acceptance-тест запускается с
+смонтированным репо через `docker compose run --rm`:
+
+```bash
+# Алиас для всех команд acceptance-замера ниже.
+WORKER_RUN="docker compose $COMPOSE_FILES run --rm \
+    -v $(pwd)/tests:/app/tests:ro \
+    -v $(pwd)/pyproject.toml:/app/pyproject.toml:ro \
+    -e PYTEST_CACHE_DIR=/tmp/.pytest_cache \
+    worker"
+```
+
 Дальше — пять блоков. Каждый замыкает один раздел в pre-defense
 чек-листе.
 
@@ -39,8 +63,9 @@ export COMPOSE_FILES="-f docker-compose.yml -f docker-compose.prod.yml"
 acceptance-тестом, если `rusentne_2023_holdout.json` ещё не создан.
 
 ```bash
-docker compose $COMPOSE_FILES exec worker \
-    pytest -m ml tests/ml/test_sentiment_quality.py::test_sentiment_meets_quality_targets -v -s
+$WORKER_RUN pytest -m ml \
+    tests/ml/test_sentiment_quality.py::test_sentiment_meets_quality_targets \
+    -p no:cacheprovider -v -s
 ```
 
 В stdout будет строка вида
@@ -59,16 +84,15 @@ docker compose $COMPOSE_FILES exec worker \
     python -m apps.ml.sentiment.training \
         --output /models/rubert-finetuned \
         --epochs 3 --batch-size 8 --lr 2e-5 --seed 42 \
-        2>&1 | tee /var/log/custdevai/training_run1.log
+    2>&1 | tee /var/log/custdevai/training_run1.log
 ```
 
 Что записывается:
 
 1. Веса + tokenizer → `/models/rubert-finetuned/` (том `ml_models`).
-2. Holdout → `tests/ml/data/rusentne_2023_holdout.json` внутри
-   worker-контейнера (≥ 200 примеров stratified split, seed=42).
-   Скопировать на хост:
-   `docker compose $COMPOSE_FILES cp worker:/app/tests/ml/data/rusentne_2023_holdout.json tests/ml/data/`.
+2. Holdout → `/models/rubert-finetuned/holdout.json` (рядом с весами,
+   ≥ 200 примеров stratified split, seed=42). Путь можно переопределить
+   через `--holdout-path /custom/path.json`.
 3. Метрики → `/models/rubert-finetuned/metrics.json`.
 
 ### 1.3. Подключить новые веса к API/worker
@@ -88,10 +112,11 @@ docker compose $COMPOSE_FILES restart api worker bot
 ### 1.4. Acceptance-замер (FR-SENT-07 ≥ 0.75 / ≥ 0.73)
 
 ```bash
-docker compose $COMPOSE_FILES exec worker \
-    env SENTIMENT_ASSERT_FR_07=true \
+$WORKER_RUN env SENTIMENT_ASSERT_FR_07=true \
         SENTIMENT_MODEL_PATH=/models/rubert-finetuned \
-        pytest -m ml tests/ml/test_sentiment_quality.py -v
+        SENTIMENT_HOLDOUT_PATH=/models/rubert-finetuned/holdout.json \
+        pytest -m ml tests/ml/test_sentiment_quality.py \
+        -p no:cacheprovider -v
 ```
 
 Зелёный прогон = FR-SENT-07 закрыто.
@@ -113,12 +138,14 @@ docker compose $COMPOSE_FILES exec worker \
 # Прогон 2: ниже lr.
 docker compose $COMPOSE_FILES exec worker \
     python -m apps.ml.sentiment.training --output /models/rubert-ft-r2 \
-        --epochs 4 --batch-size 8 --lr 1e-5 --seed 42
+        --epochs 4 --batch-size 8 --lr 1e-5 --seed 42 \
+    2>&1 | tee /var/log/custdevai/training_run2.log
 
 # Прогон 3: длиннее max_length.
 docker compose $COMPOSE_FILES exec worker \
     python -m apps.ml.sentiment.training --output /models/rubert-ft-r3 \
-        --epochs 3 --batch-size 4 --lr 2e-5 --max-length 384 --seed 42
+        --epochs 3 --batch-size 4 --lr 2e-5 --max-length 384 --seed 42 \
+    2>&1 | tee /var/log/custdevai/training_run3.log
 ```
 
 В `ML_METRICS.md` фиксировать **каждый** прогон, не подменять
