@@ -15,7 +15,6 @@ from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from apps.api.db.models import (
     Answer,
@@ -169,12 +168,6 @@ async def load_campaign_report_context(
             )
         )
 
-    topics_stmt = (
-        select(Topic)
-        .where(Topic.campaign_id == campaign_id)
-        .options(selectinload(Topic.__mapper__.attrs.get) if False else None)  # placeholder
-        .order_by(Topic.is_noise.asc(), Topic.frequency_count.desc())
-    )
     # Простой запрос — без selectinload (на SQLite ARRAY-fallback недоступен).
     topics_stmt = (
         select(Topic)
