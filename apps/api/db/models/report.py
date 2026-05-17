@@ -56,7 +56,12 @@ class Report(Base, TimestampMixin):
         nullable=False,
     )
     format: Mapped[ReportFormat] = mapped_column(
-        Enum(ReportFormat, name="report_format", create_constraint=True),
+        Enum(
+            ReportFormat,
+            name="report_format",
+            create_constraint=True,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         nullable=False,
     )
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
