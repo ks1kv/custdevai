@@ -3,6 +3,7 @@ import type {
   CampaignAnalysisStatusOut,
   CampaignCreate,
   CampaignOut,
+  CampaignSummaryOut,
   CampaignUpdate,
   Page,
   ReportFormat,
@@ -42,6 +43,10 @@ export function getAnalysisStatus(id: number) {
   return apiRequest<CampaignAnalysisStatusOut>(
     `/api/v1/campaigns/${id}/analysis-status`,
   );
+}
+
+export function getCampaignSummary(id: number) {
+  return apiRequest<CampaignSummaryOut>(`/api/v1/campaigns/${id}/summary`);
 }
 
 export function startAnalysis(id: number) {

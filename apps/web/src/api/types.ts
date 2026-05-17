@@ -67,6 +67,26 @@ export interface CampaignAnalysisStatusOut {
   target_topic_count: number;
 }
 
+export interface TopicSummaryItem {
+  label: string | null;
+  keywords: string[];
+  frequency_count: number;
+}
+
+export interface CampaignSummaryOut {
+  campaign_id: number;
+  title: string;
+  description: string | null;
+  status: CampaignStatus;
+  analysis_status: CampaignAnalysisStatus;
+  target_topic_count: number;
+  sessions_total: number;
+  sessions_completed: number;
+  answers_total: number;
+  sentiment_distribution: Record<string, number>;
+  topics_top: TopicSummaryItem[];
+}
+
 export interface CampaignCreate {
   title: string;
   description?: string | null;

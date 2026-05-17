@@ -12,6 +12,7 @@ from apps.api.schemas.campaign import (
     CampaignAnalysisStatusOut,
     CampaignCreate,
     CampaignOut,
+    CampaignSummaryOut,
     CampaignUpdate,
 )
 from apps.api.schemas.pagination import Page, PaginationParams, pagination_dependency
@@ -138,3 +139,19 @@ async def get_analysis_status_endpoint(
     service = CampaignService(session, settings)
     data = await service.get_analysis_status(campaign_id, owner_id=_owner_filter(actor))
     return CampaignAnalysisStatusOut.model_validate(data)
+
+
+@router.get(
+    "/{campaign_id}/summary",
+    response_model=CampaignSummaryOut,
+    summary="Лёгкая сводка кампании для сравнения (FR-WEB-08)",
+)
+async def get_campaign_summary(
+    campaign_id: int,
+    session: DBSession,
+    settings: SettingsDep,
+    actor: CurrentUser = Depends(_reader),
+) -> CampaignSummaryOut:
+    service = CampaignService(session, settings)
+    data = await service.get_summary(campaign_id, owner_id=_owner_filter(actor))
+    return CampaignSummaryOut.model_validate(data)

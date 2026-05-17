@@ -59,3 +59,30 @@ class CampaignAnalysisQueued(BaseModel):
     campaign_id: int
     task_id: str
     status: str = "queued"
+
+
+class TopicSummaryItem(BaseModel):
+    label: str | None
+    keywords: list[str]
+    frequency_count: int
+
+
+class CampaignSummaryOut(BaseModel):
+    """Лёгкая сводка по кампании для side-by-side сравнения (FR-WEB-08).
+
+    Возвращает только агрегации: распределение тональности, топ-темы,
+    счётчики сессий — без транскриптов и цитат. Отдельный endpoint от
+    /reports, чтобы не тянуть тяжёлый DataLoader на каждое сравнение.
+    """
+
+    campaign_id: int
+    title: str
+    description: str | None
+    status: CampaignStatus
+    analysis_status: CampaignAnalysisStatus
+    target_topic_count: int
+    sessions_total: int
+    sessions_completed: int
+    answers_total: int
+    sentiment_distribution: dict[str, int]
+    topics_top: list[TopicSummaryItem]
