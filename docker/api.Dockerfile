@@ -33,7 +33,14 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends curl libpq5 \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --system --gid 10001 app \
- && useradd --system --uid 10001 --gid app --no-create-home app
+ && useradd --system --uid 10001 --gid app --no-create-home app \
+ # Каталог reports_storage заранее создаём с владельцем app, чтобы при
+ # первом маунте пустого docker volume владелец mount-point унаследовался
+ # от target-каталога в образе. Иначе volume инициализируется под root,
+ # api пишет под uid 10001 и падает с PermissionError при
+ # mkdir('/var/lib/custdevai/reports/campaigns').
+ && mkdir -p /var/lib/custdevai/reports \
+ && chown -R app:app /var/lib/custdevai
 
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
