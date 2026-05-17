@@ -119,7 +119,7 @@ async def load_campaign_report_context(
     sessions = [
         SessionView(
             session_id=s.id,
-            pseudonym=session_to_pseudonym(s.id),
+            pseudonym=session_to_pseudonym(s.telegram_id_hash),
             status=s.status,
             started_at=s.started_at,
             completed_at=s.completed_at,
@@ -127,6 +127,10 @@ async def load_campaign_report_context(
         for s in sessions_orm
     ]
     pseudonym_by_session: dict[int, str] = {s.session_id: s.pseudonym for s in sessions}
+    # Заглушка для answers/topics, где session_id отсутствует в выборке —
+    # такие записи никогда не должны появляться при целостности БД,
+    # но если появятся — пусть будут видно в отчёте.
+    unknown_pseudonym = "R-????"
 
     answers_stmt = (
         select(Answer, SentimentResult)
@@ -155,9 +159,7 @@ async def load_campaign_report_context(
             AnswerView(
                 answer_id=answer.id,
                 session_id=answer.session_id,
-                pseudonym=pseudonym_by_session.get(
-                    answer.session_id, session_to_pseudonym(answer.session_id)
-                ),
+                pseudonym=pseudonym_by_session.get(answer.session_id, unknown_pseudonym),
                 question_id=question.id,
                 question_text=question.text,
                 question_order=question.order_index,
@@ -190,7 +192,7 @@ async def load_campaign_report_context(
                 continue
             quotes_by_topic[st.topic_id].append(
                 (
-                    pseudonym_by_session.get(st.session_id, session_to_pseudonym(st.session_id)),
+                    pseudonym_by_session.get(st.session_id, unknown_pseudonym),
                     quote,
                 )
             )

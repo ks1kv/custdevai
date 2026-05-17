@@ -1,30 +1,43 @@
 """Псевдонимизация респондентов для отчётов (FR-DB-03 + FR-RPT-05).
 
-Phase 4: производный псевдоним из `session.id % 10000` (Q1 решение
-пользователя) — без миграции БД и без race-condition в hot-path бота.
-Внутри одной кампании коллизий нет (session.id уникален). Между разными
-кампаниями возможна коллизия при > 10 000 сессий — это допустимо для MVP
-и решается переходом на `pseudonym_ordinal SMALLINT` в Phase 5.
+Псевдоним R-NNNN детерминированно выводится из `telegram_id_hash` сессии.
+`telegram_id_hash` уже представляет собой SHA-256(telegram_id || campaign.pseudonym_salt),
+поэтому полученный R-NNNN автоматически уникален в пределах кампании
+(один и тот же респондент → один и тот же псевдоним внутри кампании;
+тот же telegram_id в другой кампании → другой псевдоним, потому что
+соль кампании другая).
 
-Telegram ID никогда не участвует в псевдониме (FR-BOT-10) — только
-session.id, который сам не является ПДн.
+Telegram ID никогда не участвует в псевдониме напрямую (FR-BOT-10) —
+только через одностороннюю SHA-256-цепочку.
 """
 
 from __future__ import annotations
 
+import struct
 
-def session_to_pseudonym(session_id: int) -> str:
-    """Сформировать псевдоним вида 'R-NNNN' для отображения в отчётах.
+_PSEUDONYM_HASH_PREFIX_BYTES = 4
+_PSEUDONYM_SPACE = 10_000
+
+
+def session_to_pseudonym(telegram_id_hash: bytes) -> str:
+    """Сформировать псевдоним вида 'R-NNNN' из SHA-256-хеша Telegram ID.
 
     Args:
-        session_id: первичный ключ InterviewSession (BIGINT > 0).
+        telegram_id_hash: 32-байтовый SHA-256 от `telegram_id || pseudonym_salt`,
+            хранится в `interview_sessions.telegram_id_hash`.
 
     Returns:
-        Строка длиной 6 символов: 'R-' + 4 цифры.
+        Строка длиной 6 символов: 'R-' + 4 десятичные цифры.
 
     Raises:
-        ValueError: если session_id ≤ 0.
+        ValueError: если хеш короче 4 байт (битый или подменён).
     """
-    if session_id <= 0:
-        raise ValueError("session_id должен быть положительным")
-    return f"R-{session_id % 10000:04d}"
+    if not isinstance(telegram_id_hash, (bytes, bytearray, memoryview)):
+        raise TypeError("telegram_id_hash должен быть bytes-like")
+    if len(telegram_id_hash) < _PSEUDONYM_HASH_PREFIX_BYTES:
+        raise ValueError(
+            f"telegram_id_hash должен быть не короче {_PSEUDONYM_HASH_PREFIX_BYTES} байт"
+        )
+    prefix = bytes(telegram_id_hash[:_PSEUDONYM_HASH_PREFIX_BYTES])
+    number = struct.unpack(">I", prefix)[0] % _PSEUDONYM_SPACE
+    return f"R-{number:04d}"

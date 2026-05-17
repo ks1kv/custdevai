@@ -182,7 +182,7 @@ def _session_to_dto(
         )
     return TranscriptSessionOut(
         session_id=s.id,
-        pseudonym=session_to_pseudonym(s.id),
+        pseudonym=session_to_pseudonym(s.telegram_id_hash),
         status=s.status,
         started_at=s.started_at,
         completed_at=s.completed_at,
