@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from apps.api.config import Settings
@@ -73,10 +74,28 @@ class RuBERTSentimentAnalyzer(SentimentAnalyzer):
 
         set_global_seeds(self._settings.sentiment_random_seed)
         cache_dir = self._settings.ml_model_cache_dir or None
-        # FR-SENT-07: если задан SENTIMENT_MODEL_PATH, грузим fine-tuned
-        # веса с локального диска (output apps/ml/sentiment/training).
-        # Иначе — baseline DeepPavlov/rubert-base-cased.
-        model_source = self._settings.sentiment_model_path or self._settings.sentiment_model_name
+        # FR-SENT-07: если задан SENTIMENT_MODEL_PATH и каталог содержит
+        # артефакты модели (config.json), грузим fine-tuned веса с
+        # локального диска (output apps/ml/sentiment/training).
+        # Иначе — baseline blanchefort/rubert-base-cased-sentiment.
+        #
+        # Проверка config.json нужна, потому что .env на VPS обычно
+        # содержит SENTIMENT_MODEL_PATH сразу, ещё до прогона fine-tune.
+        # Без неё пустой каталог приводит к падению AutoTokenizer
+        # (vocab_file=None → TypeError при os.path.isfile).
+        fine_tuned_path = self._settings.sentiment_model_path
+        used_fine_tuned = bool(
+            fine_tuned_path and (Path(fine_tuned_path) / "config.json").is_file()
+        )
+        if fine_tuned_path and not used_fine_tuned:
+            logger.warning(
+                "rubert_finetuned_artifacts_missing",
+                extra={
+                    "path": fine_tuned_path,
+                    "fallback": self._settings.sentiment_model_name,
+                },
+            )
+        model_source = fine_tuned_path if used_fine_tuned else self._settings.sentiment_model_name
         self._tokenizer = AutoTokenizer.from_pretrained(model_source, cache_dir=cache_dir)
         self._model = AutoModelForSequenceClassification.from_pretrained(
             model_source, cache_dir=cache_dir
@@ -87,7 +106,7 @@ class RuBERTSentimentAnalyzer(SentimentAnalyzer):
             "rubert_warmup_complete",
             extra={
                 "model_source": model_source,
-                "fine_tuned": bool(self._settings.sentiment_model_path),
+                "fine_tuned": used_fine_tuned,
                 "num_labels": getattr(self._model.config, "num_labels", None),
             },
         )
