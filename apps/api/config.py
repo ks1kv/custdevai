@@ -81,7 +81,13 @@ class Settings(BaseSettings):
     bruteforce_lock_seconds: int = 900
 
     # --- ML modules (FR-SENT-*, FR-TOP-*, NFR-COR-01, NFR-SEC-09) -----------
-    sentiment_model_name: str = "DeepPavlov/rubert-base-cased"
+    # blanchefort/rubert-base-cased-sentiment — pre-fine-tuned 3-class
+    # RuBERT-голова для русского sentiment (NEUTRAL/POSITIVE/NEGATIVE).
+    # Дефолт `DeepPavlov/rubert-base-cased` без обучения classifier-head
+    # давал случайные прогнозы — все ответы получали NEUTRAL/LOW_CONFIDENCE.
+    # Для собственного fine-tune на RuSentNE-2023 (FR-SENT-07) задайте
+    # SENTIMENT_MODEL_PATH с локальным каталогом весов.
+    sentiment_model_name: str = "blanchefort/rubert-base-cased-sentiment"
     sentiment_confidence_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
     sentiment_random_seed: int = 42
     sentiment_batch_size: int = Field(default=16, ge=1, le=128)

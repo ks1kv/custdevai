@@ -4,11 +4,22 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.auth.hashing import derive_campaign_salt, random_campaign_salt
 from apps.api.config import Settings
-from apps.api.db.models import Campaign, CampaignAnalysisStatus, CampaignStatus, Script
+from apps.api.db.models import (
+    Answer,
+    Campaign,
+    CampaignAnalysisStatus,
+    CampaignStatus,
+    InterviewSession,
+    Script,
+    SentimentResult,
+    SessionStatus,
+    Topic,
+)
 from apps.api.db.repositories.campaigns import CampaignRepository
 from apps.api.errors import Conflict, NotFound, ValidationFailed
 from apps.api.schemas.campaign import CampaignCreate, CampaignUpdate
@@ -143,4 +154,85 @@ class CampaignService:
             "analysis_completed_at": campaign.analysis_completed_at,
             "analysis_error": campaign.analysis_error,
             "target_topic_count": campaign.target_topic_count,
+        }
+
+    async def get_summary(
+        self, campaign_id: int, *, owner_id: int | None, top_n: int = 5
+    ) -> dict[str, object]:
+        """Лёгкая сводка для сравнения (FR-WEB-08): только агрегации.
+
+        Возвращает метаданные кампании, счётчики сессий/ответов,
+        распределение тональности и top-N тем. Без транскриптов и цитат —
+        отдельно от тяжёлого load_campaign_report_context.
+        """
+        campaign = await self.get(campaign_id, owner_id=owner_id)
+
+        sessions_total = (
+            await self._session.scalar(
+                select(func.count(InterviewSession.id)).where(
+                    InterviewSession.campaign_id == campaign_id
+                )
+            )
+            or 0
+        )
+        sessions_completed = (
+            await self._session.scalar(
+                select(func.count(InterviewSession.id)).where(
+                    InterviewSession.campaign_id == campaign_id,
+                    InterviewSession.status == SessionStatus.COMPLETED,
+                )
+            )
+            or 0
+        )
+        answers_total = (
+            await self._session.scalar(
+                select(func.count(Answer.id))
+                .join(InterviewSession, InterviewSession.id == Answer.session_id)
+                .where(InterviewSession.campaign_id == campaign_id)
+            )
+            or 0
+        )
+
+        sentiment_rows = (
+            await self._session.execute(
+                select(SentimentResult.label, func.count(SentimentResult.id))
+                .join(Answer, Answer.id == SentimentResult.answer_id)
+                .join(InterviewSession, InterviewSession.id == Answer.session_id)
+                .where(InterviewSession.campaign_id == campaign_id)
+                .group_by(SentimentResult.label)
+            )
+        ).all()
+        sentiment_distribution: dict[str, int] = {
+            label.value: int(count) for label, count in sentiment_rows
+        }
+
+        topic_rows = (
+            await self._session.execute(
+                select(Topic.label, Topic.keywords, Topic.frequency_count)
+                .where(Topic.campaign_id == campaign_id, Topic.is_noise.is_(False))
+                .order_by(Topic.frequency_count.desc())
+                .limit(top_n)
+            )
+        ).all()
+        topics_top: list[dict[str, object]] = [
+            {
+                "label": label,
+                "keywords": list(keywords or []),
+                "frequency_count": int(freq),
+            }
+            for label, keywords, freq in topic_rows
+        ]
+
+        return {
+            "campaign_id": campaign.id,
+            "title": campaign.title,
+            "description": campaign.description,
+            "status": campaign.status,
+            "analysis_status": campaign.analysis_status,
+            "target_topic_count": campaign.target_topic_count,
+            "sessions_total": int(sessions_total),
+            "sessions_completed": int(sessions_completed),
+            "answers_total": int(answers_total),
+            "sentiment_distribution": sentiment_distribution,
+            "topics_top": topics_top,
         }
