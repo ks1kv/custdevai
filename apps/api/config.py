@@ -96,6 +96,13 @@ class Settings(BaseSettings):
     # того, как periodic-таска ml.sweep_stuck_running перепоставит её в
     # FAILED. Запас относительно NFR-PRF-04 (≤10 мин на 200 сессий).
     ml_stuck_running_minutes: int = Field(default=20, ge=5, le=240)
+    # Минимальное число (русскоязычных) ответов для запуска BERTopic.
+    # На корпусе меньше — UMAP падает на spectral_layout: «k >= N», т.е.
+    # размерность многообразия больше числа точек. Тематическое
+    # моделирование на 4-5 точках бессмысленно даже если бы работало,
+    # поэтому ниже порога просто пропускаем topics (sentiment всё равно
+    # сохраняется), отчёт получает раздел «темы недоступны».
+    topic_min_corpus_size: int = Field(default=10, ge=2, le=200)
 
     # --- Celery (FR-API-04) -------------------------------------------------
     celery_broker_url: str = ""

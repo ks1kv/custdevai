@@ -47,6 +47,7 @@ from apps.api.db.repositories.ml_results import (
 )
 from apps.ml.base import SentimentAnalyzer, TopicModeler
 from apps.ml.seeds import set_global_seeds
+from apps.ml.topics.schemas import TopicModelingResult
 from apps.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -159,15 +160,40 @@ async def _analyze_campaign_async(campaign_id: int, retry_attempt: int) -> dict[
             await db.commit()
 
         # 5. Topics в отдельной транзакции.
-        # Только не-шумовые тексты + сессии для seed-стабильной выборки.
-        # На вход BERTopic подаются ответы целиком — кластеризация по семантике.
-        modeler = _resolve_modeler(settings)
-        modeler.warmup()
-        topic_result = modeler.fit_transform(
-            texts,
-            session_ids=[a.session_id for a in answers],
-            target_topic_count=target_topic_count,
-        )
+        # Для topic-modeling берём только русскоязычные ответы — не-русские
+        # sentiment уже отбраковал (is_language_error=True), и их вектора
+        # в эмбеддинг-пространстве испортили бы кластеризацию.
+        russian_pairs = [
+            (a, inf)
+            for a, inf in zip(answers, sentiment_inferences, strict=True)
+            if not inf.is_language_error
+        ]
+        topic_texts = [a.text for a, _ in russian_pairs]
+        topic_session_ids = [a.session_id for a, _ in russian_pairs]
+
+        topic_result: TopicModelingResult
+        if len(topic_texts) < settings.topic_min_corpus_size:
+            # Слишком маленький корпус — UMAP/HDBSCAN не работают:
+            # spectral_layout требует N > n_components (5). Сохраняем
+            # пустой результат и продолжаем pipeline — sentiment уже
+            # есть, отчёт можно собрать без topics.
+            logger.warning(
+                "ml_pipeline_topics_skipped_small_corpus",
+                extra={
+                    "campaign_id": campaign_id,
+                    "russian_answers": len(topic_texts),
+                    "min_required": settings.topic_min_corpus_size,
+                },
+            )
+            topic_result = TopicModelingResult(topics=[], assignments=[])
+        else:
+            modeler = _resolve_modeler(settings)
+            modeler.warmup()
+            topic_result = modeler.fit_transform(
+                topic_texts,
+                session_ids=topic_session_ids,
+                target_topic_count=target_topic_count,
+            )
 
         async with sessionmaker() as db:
             topic_repo = TopicResultRepository(db)
