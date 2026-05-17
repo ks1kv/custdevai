@@ -12,10 +12,28 @@
 | FR-SENT-07 weighted F1 | ≥ 0.73 | docs/03_requirements_specification.md |
 | FR-SENT-04 воспроизводимость | побитово равные SentimentInference при одном seed | docs/03_requirements_specification.md |
 
+## Контрольные выборки
+
+| Файл | Размер | Назначение | Где появляется |
+|---|---|---|---|
+| `tests/ml/data/rusentne_2023_holdout.json` | ≥ 200 | Acceptance FR-SENT-07 после fine-tune | Создаётся `training.py` (stratified split, seed=42) |
+| `tests/ml/data/sentiment_fallback_holdout.json` | 202 (68/67/67) | Baseline-замер до fine-tune; fallback при отсутствии rusentne | Хранится в репо |
+| In-line `LABELED_EXAMPLES` | 24 | Самый быстрый smoke без обоих JSON | `tests/ml/test_sentiment_quality.py` |
+
+Приоритет в `_load_holdout()`: `rusentne_2023` → `sentiment_fallback` →
+`LABELED_EXAMPLES`. Это даёт два режима замера:
+
+1. **До fine-tune (baseline-blanchefort):** acceptance-тест автоматически
+   подхватит `sentiment_fallback_holdout.json` (202 примера) и
+   распечатает `accuracy / weighted_f1` в stdout без жёсткого assert.
+2. **После fine-tune:** training-скрипт перезапишет `rusentne_2023_holdout.json`,
+   и тот же тест с `SENTIMENT_ASSERT_FR_07=true` проверит цели
+   FR-SENT-07 на честном holdout из RuSentNE-2023.
+
 ## Воспроизведение
 
 Полный пайплайн обучения реализован в `apps/ml/sentiment/training.py`.
-Запуск:
+Запуск (на VPS):
 
 ```bash
 docker compose exec worker python -m apps.ml.sentiment.training \
@@ -25,6 +43,14 @@ docker compose exec worker python -m apps.ml.sentiment.training \
 
 Параметры подобраны под CPU-runner Selectel-инстанса. На GPU-машине
 можно увеличить `--batch-size 16` и `--epochs 5`.
+
+> **Локальный smoke в dev-sandbox.** В Claude Code web-окружении
+> `huggingface.co` блокируется прокси (`x-deny-reason: host_not_allowed`),
+> поэтому ни датасет `MonoHime/ru_sentiment_dataset`, ни веса
+> `blanchefort/...` локально не скачиваются. Smoke-прогон training
+> возможен только на VPS с открытым HF Hub. До прогона можно
+> измерять baseline-метрики на `sentiment_fallback_holdout.json`
+> (см. таблицу выше).
 
 После завершения:
 

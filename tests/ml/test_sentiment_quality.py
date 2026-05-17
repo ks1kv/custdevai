@@ -32,6 +32,7 @@ from apps.api.config import get_settings  # noqa: E402
 from apps.api.db.models import SentimentLabel  # noqa: E402
 
 _HOLDOUT_PATH = Path(__file__).parent / "data" / "rusentne_2023_holdout.json"
+_FALLBACK_HOLDOUT_PATH = Path(__file__).parent / "data" / "sentiment_fallback_holdout.json"
 _LABEL_MAP = {
     "positive": SentimentLabel.POSITIVE,
     "neutral": SentimentLabel.NEUTRAL,
@@ -40,10 +41,21 @@ _LABEL_MAP = {
 
 
 def _load_holdout() -> list[tuple[str, SentimentLabel]]:
-    """Загрузить контрольную выборку: из holdout-файла или fallback."""
-    if _HOLDOUT_PATH.is_file():
-        rows = json.loads(_HOLDOUT_PATH.read_text(encoding="utf-8"))
-        return [(r["text"], _LABEL_MAP[r["label"]]) for r in rows]
+    """Загрузить контрольную выборку.
+
+    Приоритет:
+        1. `rusentne_2023_holdout.json` — реальный stratified holdout
+           из training-прогона (≥ 200, FR-SENT-07 acceptance).
+        2. `sentiment_fallback_holdout.json` — ручная размеченная
+           выборка 200+ русских фраз. Используется до прогона
+           fine-tune (например, для baseline-замера blanchefort).
+        3. In-line `LABELED_EXAMPLES` (24 примера) — последний резерв
+           для самого быстрого smoke без обоих JSON-файлов.
+    """
+    for path in (_HOLDOUT_PATH, _FALLBACK_HOLDOUT_PATH):
+        if path.is_file():
+            rows = json.loads(path.read_text(encoding="utf-8"))
+            return [(r["text"], _LABEL_MAP[r["label"]]) for r in rows]
     return list(LABELED_EXAMPLES)
 
 
