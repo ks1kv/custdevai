@@ -8,7 +8,7 @@
  * не вылетал из системы по истечении 15-минутного TTL access-токена.
  */
 
-import type { ProblemDetail } from "./types";
+import type { ProblemDetail, TokenPair } from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -48,13 +48,24 @@ interface RequestOptions {
 // Синглтон-промис активного refresh-запроса. Если параллельно отлетели
 // несколько 401, все они дождутся одного и того же refresh, а не
 // запустят N параллельных (которые бы дрались за один refresh_token).
-let refreshPromise: Promise<boolean> | null = null;
+let refreshPromise: Promise<TokenPair | null> | null = null;
 
 function isAuthPath(path: string): boolean {
   return path.startsWith(REFRESH_PATH) || path.startsWith(LOGIN_PATH);
 }
 
 async function tryRefresh(): Promise<boolean> {
+  return (await refreshTokens()) !== null;
+}
+
+/**
+ * Дёрнуть POST /api/v1/auth/refresh и вернуть свежий TokenPair (или null).
+ * Безопасно вызывать параллельно — все вызовы дождутся одного in-flight
+ * refresh-запроса вместо того, чтобы плодить N конкурирующих. Используется
+ * как AuthContext для проактивного refresh по таймеру, так и
+ * fetchWithAuthRetry для реактивного refresh при 401.
+ */
+export async function refreshTokens(): Promise<TokenPair | null> {
   if (refreshPromise) return refreshPromise;
   refreshPromise = (async () => {
     try {
@@ -64,9 +75,10 @@ async function tryRefresh(): Promise<boolean> {
         credentials: "include",
         headers: { Accept: "application/json" },
       });
-      return res.ok;
+      if (!res.ok) return null;
+      return (await res.json()) as TokenPair;
     } catch {
-      return false;
+      return null;
     } finally {
       // Освобождаем замок на следующем тике, чтобы все ожидающие
       // запросы успели снять разделяемый промис.
